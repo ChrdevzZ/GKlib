@@ -1,0 +1,19 @@
+#ifndef GKLIB_CONFIG_H
+#define GKLIB_CONFIG_H
+
+#cmakedefine01 GKLIB_BUILD_SHARED_LIBS
+
+#cmakedefine HAVE_EXECINFO_H 1
+#cmakedefine HAVE_GETLINE 1
+#cmakedefine HAVE_PCREPOSIX_H 1
+#cmakedefine HAVE_REGEX_H 1
+#cmakedefine LINUX 1
+#cmakedefine NO_X86 1
+#cmakedefine GKLIB_THREAD_LOCAL_STORAGE 1
+#cmakedefine USE_GKREGEX 1
+#cmakedefine USE_GKRAND 1
+#cmakedefine USE_PCRE 1
+
+#define GKLIB_THREAD_LOCAL @GKLIB_THREAD_LOCAL@
+
+#endif

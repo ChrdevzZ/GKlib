@@ -10,6 +10,9 @@
 #ifndef _GKLIB_H_
 #define _GKLIB_H_ 1
 
+#include "gklib_config.h"
+#include "gklib_export.h"
+
 #define GKMSPACE
 
 #if defined(_MSC_VER)
@@ -45,6 +48,8 @@
 
 #if defined(USE_PCRE) && defined(HAVE_PCREPOSIX_H)
   #include <pcreposix.h>
+#elif defined(USE_GKREGEX)
+  #include "gkregex.h"
 #elif defined(HAVE_REGEX_H)
   #include <regex.h>
 #else
@@ -52,7 +57,7 @@
 #endif
 
 
-#if defined(__OPENMP__) 
+#if defined(_OPENMP)
 #include <omp.h>
 #endif
 

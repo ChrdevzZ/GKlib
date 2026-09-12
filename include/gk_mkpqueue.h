@@ -20,7 +20,7 @@ PQT *FPRFX ## Create(size_t maxnodes)\
 {\
   PQT *queue; \
 \
-  queue = (PQT *)gk_malloc(sizeof(PQT), "gk_pqCreate: queue");\
+  queue = (PQT *)gk_malloc(sizeof(PQT), (char *)"gk_pqCreate: queue");\
   FPRFX ## Init(queue, maxnodes);\
 \
   return queue;\
@@ -35,8 +35,8 @@ void FPRFX ## Init(PQT *queue, size_t maxnodes)\
   queue->nnodes = 0;\
   queue->maxnodes = maxnodes;\
 \
-  queue->heap    = KVMALLOC(maxnodes, "gk_PQInit: heap");\
-  queue->locator = gk_idxsmalloc(maxnodes, -1, "gk_PQInit: locator");\
+  queue->heap    = KVMALLOC(maxnodes, (char *)"gk_PQInit: heap");\
+  queue->locator = gk_idxsmalloc(maxnodes, -1, (char *)"gk_PQInit: locator");\
 }\
 \
 \
@@ -414,21 +414,24 @@ int FPRFX ## CheckHeap(PQT *queue)\
 
 
 #define GK_MKPQUEUE_PROTO(FPRFX, PQT, KT, VT)\
-  PQT *  FPRFX ## Create(size_t maxnodes);\
-  void   FPRFX ## Init(PQT *queue, size_t maxnodes);\
-  void   FPRFX ## Reset(PQT *queue);\
-  void   FPRFX ## Free(PQT *queue);\
-  void   FPRFX ## Destroy(PQT *queue);\
-  size_t FPRFX ## Length(PQT *queue);\
-  int    FPRFX ## Insert(PQT *queue, VT node, KT key);\
-  int    FPRFX ## Delete(PQT *queue, VT node);\
-  void   FPRFX ## Update(PQT *queue, VT node, KT newkey);\
-  VT     FPRFX ## GetTop(PQT *queue);\
-  VT     FPRFX ## SeeTopVal(PQT *queue);\
-  KT     FPRFX ## SeeTopKey(PQT *queue);\
-  KT     FPRFX ## SeeKey(PQT *queue, VT node);\
-  VT     FPRFX ## SeeConstraintTop(PQT *queue, KT maxwgt, KT *wgts);\
-  int    FPRFX ## CheckHeap(PQT *queue);\
+  GK_MKPQUEUE_PROTO_EX(FPRFX, PQT, KT, VT, )
+
+#define GK_MKPQUEUE_PROTO_EX(FPRFX, PQT, KT, VT, API)\
+  API PQT *  FPRFX ## Create(size_t maxnodes);\
+  API void   FPRFX ## Init(PQT *queue, size_t maxnodes);\
+  API void   FPRFX ## Reset(PQT *queue);\
+  API void   FPRFX ## Free(PQT *queue);\
+  API void   FPRFX ## Destroy(PQT *queue);\
+  API size_t FPRFX ## Length(PQT *queue);\
+  API int    FPRFX ## Insert(PQT *queue, VT node, KT key);\
+  API int    FPRFX ## Delete(PQT *queue, VT node);\
+  API void   FPRFX ## Update(PQT *queue, VT node, KT newkey);\
+  API VT     FPRFX ## GetTop(PQT *queue);\
+  API VT     FPRFX ## SeeTopVal(PQT *queue);\
+  API KT     FPRFX ## SeeTopKey(PQT *queue);\
+  API KT     FPRFX ## SeeKey(PQT *queue, VT node);\
+  API VT     FPRFX ## SeeConstraintTop(PQT *queue, KT maxwgt, KT *wgts);\
+  API int    FPRFX ## CheckHeap(PQT *queue);\
 
 
 /* This is how these macros are used

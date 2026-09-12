@@ -22,6 +22,8 @@
 #ifndef _REGEX_H
 #define _REGEX_H 1
 
+#include "gklib_export.h"
+
 #include <sys/types.h>
 
 /* Allow the use in C++ code.  */
@@ -178,7 +180,7 @@ typedef unsigned long int reg_syntax_t;
    some interfaces).  When a regexp is compiled, the syntax used is
    stored in the pattern buffer, so changing this does not affect
    already-compiled regexps.  */
-extern reg_syntax_t re_syntax_options;
+GKLIB_EXPORT extern reg_syntax_t re_syntax_options;
 
 /* Define combinations of the above bits for the standard possibilities.
    (The [[[ comments delimit what gets put into the Texinfo file, so
@@ -441,19 +443,19 @@ typedef struct
 
 /* Sets the current default syntax to SYNTAX, and return the old syntax.
    You can also simply assign to the `re_syntax_options' variable.  */
-extern reg_syntax_t re_set_syntax (reg_syntax_t __syntax);
+GKLIB_EXPORT reg_syntax_t re_set_syntax (reg_syntax_t __syntax);
 
 /* Compile the regular expression PATTERN, with length LENGTH
    and syntax given by the global `re_syntax_options', into the buffer
    BUFFER.  Return NULL if successful, and an error string if not.  */
-extern const char *re_compile_pattern (const char *__pattern, size_t __length,
+GKLIB_EXPORT const char *re_compile_pattern (const char *__pattern, size_t __length,
 				       struct re_pattern_buffer *__buffer);
 
 
 /* Compile a fastmap for the compiled pattern in BUFFER; used to
    accelerate searches.  Return 0 if successful and -2 if was an
    internal error.  */
-extern int re_compile_fastmap (struct re_pattern_buffer *__buffer);
+GKLIB_EXPORT int re_compile_fastmap (struct re_pattern_buffer *__buffer);
 
 
 /* Search in the string STRING (with length LENGTH) for the pattern
@@ -461,14 +463,14 @@ extern int re_compile_fastmap (struct re_pattern_buffer *__buffer);
    characters.  Return the starting position of the match, -1 for no
    match, or -2 for an internal error.  Also return register
    information in REGS (if REGS and BUFFER->no_sub are nonzero).  */
-extern int re_search (struct re_pattern_buffer *__buffer, const char *__string,
+GKLIB_EXPORT int re_search (struct re_pattern_buffer *__buffer, const char *__string,
 		      int __length, int __start, int __range,
 		      struct re_registers *__regs);
 
 
 /* Like `re_search', but search in the concatenation of STRING1 and
    STRING2.  Also, stop searching at index START + STOP.  */
-extern int re_search_2 (struct re_pattern_buffer *__buffer,
+GKLIB_EXPORT int re_search_2 (struct re_pattern_buffer *__buffer,
 			const char *__string1, int __length1,
 			const char *__string2, int __length2, int __start,
 			int __range, struct re_registers *__regs, int __stop);
@@ -476,12 +478,12 @@ extern int re_search_2 (struct re_pattern_buffer *__buffer,
 
 /* Like `re_search', but return how many characters in STRING the regexp
    in BUFFER matched, starting at position START.  */
-extern int re_match (struct re_pattern_buffer *__buffer, const char *__string,
+GKLIB_EXPORT int re_match (struct re_pattern_buffer *__buffer, const char *__string,
 		     int __length, int __start, struct re_registers *__regs);
 
 
 /* Relates to `re_match' as `re_search_2' relates to `re_search'.  */
-extern int re_match_2 (struct re_pattern_buffer *__buffer,
+GKLIB_EXPORT int re_match_2 (struct re_pattern_buffer *__buffer,
 		       const char *__string1, int __length1,
 		       const char *__string2, int __length2, int __start,
 		       struct re_registers *__regs, int __stop);
@@ -499,7 +501,7 @@ extern int re_match_2 (struct re_pattern_buffer *__buffer,
    Unless this function is called, the first search or match using
    PATTERN_BUFFER will allocate its own register data, without
    freeing the old data.  */
-extern void re_set_registers (struct re_pattern_buffer *__buffer,
+GKLIB_EXPORT void re_set_registers (struct re_pattern_buffer *__buffer,
 			      struct re_registers *__regs,
 			      unsigned int __num_regs,
 			      regoff_t *__starts, regoff_t *__ends);
@@ -507,8 +509,8 @@ extern void re_set_registers (struct re_pattern_buffer *__buffer,
 #if defined _REGEX_RE_COMP || defined _LIBC
 # ifndef _CRAY
 /* 4.2 bsd compatibility.  */
-extern char *re_comp (const char *);
-extern int re_exec (const char *);
+GKLIB_EXPORT char *re_comp (const char *);
+GKLIB_EXPORT int re_exec (const char *);
 # endif
 #endif
 
@@ -534,19 +536,19 @@ extern int re_exec (const char *);
 #endif
 
 /* POSIX compatibility.  */
-extern int regcomp (regex_t *__restrict __preg,
+GKLIB_EXPORT int regcomp (regex_t *__restrict __preg,
 		    const char *__restrict __pattern,
 		    int __cflags);
 
-extern int regexec (const regex_t *__restrict __preg,
+GKLIB_EXPORT int regexec (const regex_t *__restrict __preg,
 		    const char *__restrict __string, size_t __nmatch,
 		    regmatch_t __pmatch[__restrict_arr],
 		    int __eflags);
 
-extern size_t regerror (int __errcode, const regex_t *__restrict __preg,
+GKLIB_EXPORT size_t regerror (int __errcode, const regex_t *__restrict __preg,
 			char *__restrict __errbuf, size_t __errbuf_size);
 
-extern void regfree (regex_t *__preg);
+GKLIB_EXPORT void regfree (regex_t *__preg);
 
 
 #ifdef __cplusplus

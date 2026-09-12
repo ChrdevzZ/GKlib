@@ -17,17 +17,17 @@ extern "C" {
 /*-------------------------------------------------------------
  * blas.c 
  *-------------------------------------------------------------*/
-GK_MKBLAS_PROTO(gk_c,   char,     int)
-GK_MKBLAS_PROTO(gk_i,   int,      int)
-GK_MKBLAS_PROTO(gk_i8,  int8_t,   int8_t)
-GK_MKBLAS_PROTO(gk_i16, int16_t,  int16_t)
-GK_MKBLAS_PROTO(gk_i32, int32_t,  int32_t)
-GK_MKBLAS_PROTO(gk_i64, int64_t,  int64_t)
-GK_MKBLAS_PROTO(gk_z,   ssize_t,  ssize_t)
-GK_MKBLAS_PROTO(gk_zu,  size_t,   size_t)
-GK_MKBLAS_PROTO(gk_f,   float,    float)
-GK_MKBLAS_PROTO(gk_d,   double,   double)
-GK_MKBLAS_PROTO(gk_idx, gk_idx_t, gk_idx_t)
+GK_MKBLAS_PROTO_EX(gk_c,   char,     int,      GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_i,   int,      int,      GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_i8,  int8_t,   int8_t,   GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_i16, int16_t,  int16_t,  GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_i32, int32_t,  int32_t,  GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_i64, int64_t,  int64_t,  GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_z,   ssize_t,  ssize_t,  GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_zu,  size_t,   size_t,   GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_f,   float,    float,    GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_d,   double,   double,   GKLIB_EXPORT)
+GK_MKBLAS_PROTO_EX(gk_idx, gk_idx_t, gk_idx_t, GKLIB_EXPORT)
 
 
 
@@ -35,27 +35,27 @@ GK_MKBLAS_PROTO(gk_idx, gk_idx_t, gk_idx_t)
 /*-------------------------------------------------------------
  * io.c
  *-------------------------------------------------------------*/
-FILE *gk_fopen(char *, char *, const char *);
-void gk_fclose(FILE *);
-ssize_t gk_read(int fd, void *vbuf, size_t count);
-ssize_t gk_write(int fd, void *vbuf, size_t count);
-ssize_t gk_getline(char **lineptr, size_t *n, FILE *stream);
-char **gk_readfile(char *fname, size_t *r_nlines);
-int32_t *gk_i32readfile(char *fname, size_t *r_nlines);
-int64_t *gk_i64readfile(char *fname, size_t *r_nlines);
-ssize_t *gk_zreadfile(char *fname, size_t *r_nlines);
-char *gk_creadfilebin(char *fname, size_t *r_nelmnts);
-size_t gk_cwritefilebin(char *fname, size_t n, char *a);
-int32_t *gk_i32readfilebin(char *fname, size_t *r_nelmnts);
-size_t gk_i32writefilebin(char *fname, size_t n, int32_t *a);
-int64_t *gk_i64readfilebin(char *fname, size_t *r_nelmnts);
-size_t gk_i64writefilebin(char *fname, size_t n, int64_t *a);
-ssize_t *gk_zreadfilebin(char *fname, size_t *r_nelmnts);
-size_t gk_zwritefilebin(char *fname, size_t n, ssize_t *a);
-float *gk_freadfilebin(char *fname, size_t *r_nelmnts);
-size_t gk_fwritefilebin(char *fname, size_t n, float *a);
-double *gk_dreadfilebin(char *fname, size_t *r_nelmnts);
-size_t gk_dwritefilebin(char *fname, size_t n, double *a);
+GKLIB_EXPORT FILE *gk_fopen(char *, char *, const char *);
+GKLIB_EXPORT void gk_fclose(FILE *);
+GKLIB_EXPORT ssize_t gk_read(int fd, void *vbuf, size_t count);
+GKLIB_EXPORT ssize_t gk_write(int fd, void *vbuf, size_t count);
+GKLIB_EXPORT ssize_t gk_getline(char **lineptr, size_t *n, FILE *stream);
+GKLIB_EXPORT char **gk_readfile(char *fname, size_t *r_nlines);
+GKLIB_EXPORT int32_t *gk_i32readfile(char *fname, size_t *r_nlines);
+GKLIB_EXPORT int64_t *gk_i64readfile(char *fname, size_t *r_nlines);
+GKLIB_EXPORT ssize_t *gk_zreadfile(char *fname, size_t *r_nlines);
+GKLIB_EXPORT char *gk_creadfilebin(char *fname, size_t *r_nelmnts);
+GKLIB_EXPORT size_t gk_cwritefilebin(char *fname, size_t n, char *a);
+GKLIB_EXPORT int32_t *gk_i32readfilebin(char *fname, size_t *r_nelmnts);
+GKLIB_EXPORT size_t gk_i32writefilebin(char *fname, size_t n, int32_t *a);
+GKLIB_EXPORT int64_t *gk_i64readfilebin(char *fname, size_t *r_nelmnts);
+GKLIB_EXPORT size_t gk_i64writefilebin(char *fname, size_t n, int64_t *a);
+GKLIB_EXPORT ssize_t *gk_zreadfilebin(char *fname, size_t *r_nelmnts);
+GKLIB_EXPORT size_t gk_zwritefilebin(char *fname, size_t n, ssize_t *a);
+GKLIB_EXPORT float *gk_freadfilebin(char *fname, size_t *r_nelmnts);
+GKLIB_EXPORT size_t gk_fwritefilebin(char *fname, size_t n, float *a);
+GKLIB_EXPORT double *gk_dreadfilebin(char *fname, size_t *r_nelmnts);
+GKLIB_EXPORT size_t gk_dwritefilebin(char *fname, size_t n, double *a);
 
 
 
@@ -63,295 +63,278 @@ size_t gk_dwritefilebin(char *fname, size_t n, double *a);
 /*-------------------------------------------------------------
  * fs.c
  *-------------------------------------------------------------*/
-int gk_fexists(char *);
-int gk_dexists(char *);
-ssize_t gk_getfsize(char *);
-void gk_getfilestats(char *fname, size_t *r_nlines, size_t *r_ntokens, 
+GKLIB_EXPORT int gk_fexists(char *);
+GKLIB_EXPORT int gk_dexists(char *);
+GKLIB_EXPORT ssize_t gk_getfsize(char *);
+GKLIB_EXPORT void gk_getfilestats(char *fname, size_t *r_nlines, size_t *r_ntokens,
           size_t *r_max_nlntokens, size_t *r_nbytes);
-char *gk_getbasename(char *path);
-char *gk_getextname(char *path);
-char *gk_getfilename(char *path);
-char *gk_getpathname(char *path);
-int gk_mkpath(char *);
-int gk_rmpath(char *);
+GKLIB_EXPORT char *gk_getbasename(char *path);
+GKLIB_EXPORT char *gk_getextname(char *path);
+GKLIB_EXPORT char *gk_getfilename(char *path);
+GKLIB_EXPORT char *gk_getpathname(char *path);
+GKLIB_EXPORT int gk_mkpath(char *);
+GKLIB_EXPORT int gk_rmpath(char *);
 
 
 
 /*-------------------------------------------------------------
  * memory.c
  *-------------------------------------------------------------*/
-GK_MKALLOC_PROTO(gk_c,    char)
-GK_MKALLOC_PROTO(gk_i,    int)
-GK_MKALLOC_PROTO(gk_i8,   int8_t)
-GK_MKALLOC_PROTO(gk_i16,  int16_t)
-GK_MKALLOC_PROTO(gk_i32,  int32_t)
-GK_MKALLOC_PROTO(gk_i64,  int64_t)
-GK_MKALLOC_PROTO(gk_ui8,  uint8_t)
-GK_MKALLOC_PROTO(gk_ui16, uint16_t)
-GK_MKALLOC_PROTO(gk_ui32, uint32_t)
-GK_MKALLOC_PROTO(gk_ui64, uint64_t)
-GK_MKALLOC_PROTO(gk_z,    ssize_t)
-GK_MKALLOC_PROTO(gk_zu,   size_t)
-GK_MKALLOC_PROTO(gk_f,    float)
-GK_MKALLOC_PROTO(gk_d,    double)
-GK_MKALLOC_PROTO(gk_idx,  gk_idx_t)
+GK_MKALLOC_PROTO_EX(gk_c,    char,       GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i,    int,        GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i8,   int8_t,     GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i16,  int16_t,    GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i32,  int32_t,    GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i64,  int64_t,    GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_ui8,  uint8_t,    GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_ui16, uint16_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_ui32, uint32_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_ui64, uint64_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_z,    ssize_t,    GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_zu,   size_t,     GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_f,    float,      GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_d,    double,     GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_idx,  gk_idx_t,   GKLIB_EXPORT)
 
-GK_MKALLOC_PROTO(gk_ckv,   gk_ckv_t)
-GK_MKALLOC_PROTO(gk_ikv,   gk_ikv_t)
-GK_MKALLOC_PROTO(gk_i8kv,  gk_i8kv_t)
-GK_MKALLOC_PROTO(gk_i16kv, gk_i16kv_t)
-GK_MKALLOC_PROTO(gk_i32kv, gk_i32kv_t)
-GK_MKALLOC_PROTO(gk_i64kv, gk_i64kv_t)
-GK_MKALLOC_PROTO(gk_zkv,   gk_zkv_t)
-GK_MKALLOC_PROTO(gk_zukv,  gk_zukv_t)
-GK_MKALLOC_PROTO(gk_fkv,   gk_fkv_t)
-GK_MKALLOC_PROTO(gk_dkv,   gk_dkv_t)
-GK_MKALLOC_PROTO(gk_skv,   gk_skv_t)
-GK_MKALLOC_PROTO(gk_idxkv, gk_idxkv_t)
+GK_MKALLOC_PROTO_EX(gk_ckv,   gk_ckv_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_ikv,   gk_ikv_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i8kv,  gk_i8kv_t,  GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i16kv, gk_i16kv_t, GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i32kv, gk_i32kv_t, GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_i64kv, gk_i64kv_t, GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_zkv,   gk_zkv_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_zukv,  gk_zukv_t,  GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_fkv,   gk_fkv_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_dkv,   gk_dkv_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_skv,   gk_skv_t,   GKLIB_EXPORT)
+GK_MKALLOC_PROTO_EX(gk_idxkv, gk_idxkv_t, GKLIB_EXPORT)
 
-void   gk_AllocMatrix(void ***, size_t, size_t , size_t);
-void   gk_FreeMatrix(void ***, size_t, size_t);
-int    gk_malloc_init(void);
-void   gk_malloc_cleanup(int showstats);
-void  *gk_malloc(size_t nbytes, char *msg);
-void  *gk_realloc(void *oldptr, size_t nbytes, char *msg);
-void   gk_free(void **ptr1,...);
-size_t gk_GetCurMemoryUsed(void);
-size_t gk_GetMaxMemoryUsed(void);
-void   gk_GetVMInfo(size_t *vmsize, size_t *vmrss);
-size_t gk_GetProcVmPeak(void);
+GKLIB_EXPORT void   gk_AllocMatrix(void ***, size_t, size_t , size_t);
+GKLIB_EXPORT void   gk_FreeMatrix(void ***, size_t, size_t);
+GKLIB_EXPORT int    gk_malloc_init(void);
+GKLIB_EXPORT void   gk_malloc_cleanup(int showstats);
+GKLIB_EXPORT void  *gk_malloc(size_t nbytes, char *msg);
+GKLIB_EXPORT void  *gk_realloc(void *oldptr, size_t nbytes, char *msg);
+GKLIB_EXPORT void   gk_free(void **ptr1,...);
+GKLIB_EXPORT size_t gk_GetCurMemoryUsed(void);
+GKLIB_EXPORT size_t gk_GetMaxMemoryUsed(void);
+GKLIB_EXPORT void   gk_GetVMInfo(size_t *vmsize, size_t *vmrss);
+GKLIB_EXPORT size_t gk_GetProcVmPeak(void);
 
 
 
 /*-------------------------------------------------------------
  * seq.c
  *-------------------------------------------------------------*/
-gk_seq_t *gk_seq_ReadGKMODPSSM(char *file_name);
-gk_i2cc2i_t *gk_i2cc2i_create_common(char *alphabet);
-void gk_seq_init(gk_seq_t *seq);
+GKLIB_EXPORT gk_seq_t *gk_seq_ReadGKMODPSSM(char *file_name);
+GKLIB_EXPORT gk_i2cc2i_t *gk_i2cc2i_create_common(char *alphabet);
+GKLIB_EXPORT void gk_seq_init(gk_seq_t *seq);
 
 
 
 /*-------------------------------------------------------------
  * error.c
  *-------------------------------------------------------------*/
-void gk_set_exit_on_error(int value);
-void errexit(char *,...);
-void gk_errexit(int signum, char *,...);
-int gk_sigtrap(void);
-int gk_siguntrap(void);
-void gk_sigthrow(int signum);
-void gk_SetSignalHandlers(void);
-void gk_UnsetSignalHandlers(void);
-void gk_NonLocalExit_Handler(int signum);
-char *gk_strerror(int errnum);
-void PrintBackTrace(void);
+GKLIB_EXPORT void gk_set_exit_on_error(int value);
+GKLIB_EXPORT void errexit(char *,...);
+GKLIB_EXPORT void gk_errexit(int signum, char *,...);
+GKLIB_EXPORT int gk_sigtrap(void);
+GKLIB_EXPORT int gk_siguntrap(void);
+GKLIB_EXPORT void gk_sigthrow(int signum);
+GKLIB_EXPORT void gk_SetSignalHandlers(void);
+GKLIB_EXPORT void gk_UnsetSignalHandlers(void);
+GKLIB_EXPORT void gk_NonLocalExit_Handler(int signum);
+GKLIB_EXPORT char *gk_strerror(int errnum);
+GKLIB_EXPORT void PrintBackTrace(void);
 
 
 /*-------------------------------------------------------------
  * util.c
  *-------------------------------------------------------------*/
-void  gk_RandomPermute(size_t, int *, int);
-void  gk_array2csr(size_t n, size_t range, int *array, int *ptr, int *ind);
-int   gk_log2(int);
-int   gk_ispow2(int);
-float gk_flog2(float);
+GKLIB_EXPORT void  gk_RandomPermute(size_t, int *, int);
+GKLIB_EXPORT void  gk_array2csr(size_t n, size_t range, int *array, int *ptr, int *ind);
+GKLIB_EXPORT int   gk_log2(int);
+GKLIB_EXPORT int   gk_ispow2(int);
+GKLIB_EXPORT float gk_flog2(float);
 
 
 /*-------------------------------------------------------------
  * time.c
  *-------------------------------------------------------------*/
-gk_wclock_t gk_WClockSeconds(void);
-double gk_CPUSeconds(void);
+GKLIB_EXPORT gk_wclock_t gk_WClockSeconds(void);
+GKLIB_EXPORT double gk_CPUSeconds(void);
 
 /*-------------------------------------------------------------
  * string.c
  *-------------------------------------------------------------*/
-char   *gk_strchr_replace(char *str, char *fromlist, char *tolist);
-int     gk_strstr_replace(char *str, char *pattern, char *replacement, char *options, char **new_str);
-char   *gk_strtprune(char *, char *);
-char   *gk_strhprune(char *, char *);
-char   *gk_strtoupper(char *); 
-char   *gk_strtolower(char *); 
-char   *gk_strdup(char *orgstr);
-int     gk_strcasecmp(char *s1, char *s2);
-int     gk_strrcmp(char *s1, char *s2);
-char   *gk_time2str(time_t time);
-time_t  gk_str2time(char *str);
-int     gk_GetStringID(gk_StringMap_t *strmap, char *key);
+GKLIB_EXPORT char   *gk_strchr_replace(char *str, char *fromlist, char *tolist);
+GKLIB_EXPORT int     gk_strstr_replace(char *str, char *pattern, char *replacement, char *options, char **new_str);
+GKLIB_EXPORT char   *gk_strtprune(char *, char *);
+GKLIB_EXPORT char   *gk_strhprune(char *, char *);
+GKLIB_EXPORT char   *gk_strtoupper(char *);
+GKLIB_EXPORT char   *gk_strtolower(char *);
+GKLIB_EXPORT char   *gk_strdup(char *orgstr);
+GKLIB_EXPORT int     gk_strcasecmp(char *s1, char *s2);
+GKLIB_EXPORT int     gk_strrcmp(char *s1, char *s2);
+GKLIB_EXPORT char   *gk_time2str(time_t time);
+GKLIB_EXPORT time_t  gk_str2time(char *str);
+GKLIB_EXPORT int     gk_GetStringID(gk_StringMap_t *strmap, char *key);
 
 
 
 /*-------------------------------------------------------------
  * sort.c 
  *-------------------------------------------------------------*/
-void gk_csorti(size_t, char *);
-void gk_csortd(size_t, char *);
-void gk_isorti(size_t, int *);
-void gk_isortd(size_t, int *);
-void gk_i32sorti(size_t, int32_t *);
-void gk_i32sortd(size_t, int32_t *);
-void gk_i64sorti(size_t, int64_t *);
-void gk_i64sortd(size_t, int64_t *);
-void gk_ui32sorti(size_t, uint32_t *);
-void gk_ui32sortd(size_t, uint32_t *);
-void gk_ui64sorti(size_t, uint64_t *);
-void gk_ui64sortd(size_t, uint64_t *);
-void gk_fsorti(size_t, float *);
-void gk_fsortd(size_t, float *);
-void gk_dsorti(size_t, double *);
-void gk_dsortd(size_t, double *);
-void gk_idxsorti(size_t, gk_idx_t *);
-void gk_idxsortd(size_t, gk_idx_t *);
-void gk_ckvsorti(size_t, gk_ckv_t *);
-void gk_ckvsortd(size_t, gk_ckv_t *);
-void gk_ikvsorti(size_t, gk_ikv_t *);
-void gk_ikvsortd(size_t, gk_ikv_t *);
-void gk_i32kvsorti(size_t, gk_i32kv_t *);
-void gk_i32kvsortd(size_t, gk_i32kv_t *);
-void gk_i64kvsorti(size_t, gk_i64kv_t *);
-void gk_i64kvsortd(size_t, gk_i64kv_t *);
-void gk_zkvsorti(size_t, gk_zkv_t *);
-void gk_zkvsortd(size_t, gk_zkv_t *);
-void gk_zukvsorti(size_t, gk_zukv_t *);
-void gk_zukvsortd(size_t, gk_zukv_t *);
-void gk_fkvsorti(size_t, gk_fkv_t *);
-void gk_fkvsortd(size_t, gk_fkv_t *);
-void gk_dkvsorti(size_t, gk_dkv_t *);
-void gk_dkvsortd(size_t, gk_dkv_t *);
-void gk_skvsorti(size_t, gk_skv_t *);
-void gk_skvsortd(size_t, gk_skv_t *);
-void gk_idxkvsorti(size_t, gk_idxkv_t *);
-void gk_idxkvsortd(size_t, gk_idxkv_t *);
+GKLIB_EXPORT void gk_csorti(size_t, char *);
+GKLIB_EXPORT void gk_csortd(size_t, char *);
+GKLIB_EXPORT void gk_isorti(size_t, int *);
+GKLIB_EXPORT void gk_isortd(size_t, int *);
+GKLIB_EXPORT void gk_i32sorti(size_t, int32_t *);
+GKLIB_EXPORT void gk_i32sortd(size_t, int32_t *);
+GKLIB_EXPORT void gk_i64sorti(size_t, int64_t *);
+GKLIB_EXPORT void gk_i64sortd(size_t, int64_t *);
+GKLIB_EXPORT void gk_ui32sorti(size_t, uint32_t *);
+GKLIB_EXPORT void gk_ui32sortd(size_t, uint32_t *);
+GKLIB_EXPORT void gk_ui64sorti(size_t, uint64_t *);
+GKLIB_EXPORT void gk_ui64sortd(size_t, uint64_t *);
+GKLIB_EXPORT void gk_fsorti(size_t, float *);
+GKLIB_EXPORT void gk_fsortd(size_t, float *);
+GKLIB_EXPORT void gk_dsorti(size_t, double *);
+GKLIB_EXPORT void gk_dsortd(size_t, double *);
+GKLIB_EXPORT void gk_idxsorti(size_t, gk_idx_t *);
+GKLIB_EXPORT void gk_idxsortd(size_t, gk_idx_t *);
+GKLIB_EXPORT void gk_ckvsorti(size_t, gk_ckv_t *);
+GKLIB_EXPORT void gk_ckvsortd(size_t, gk_ckv_t *);
+GKLIB_EXPORT void gk_ikvsorti(size_t, gk_ikv_t *);
+GKLIB_EXPORT void gk_ikvsortd(size_t, gk_ikv_t *);
+GKLIB_EXPORT void gk_i32kvsorti(size_t, gk_i32kv_t *);
+GKLIB_EXPORT void gk_i32kvsortd(size_t, gk_i32kv_t *);
+GKLIB_EXPORT void gk_i64kvsorti(size_t, gk_i64kv_t *);
+GKLIB_EXPORT void gk_i64kvsortd(size_t, gk_i64kv_t *);
+GKLIB_EXPORT void gk_zkvsorti(size_t, gk_zkv_t *);
+GKLIB_EXPORT void gk_zkvsortd(size_t, gk_zkv_t *);
+GKLIB_EXPORT void gk_zukvsorti(size_t, gk_zukv_t *);
+GKLIB_EXPORT void gk_zukvsortd(size_t, gk_zukv_t *);
+GKLIB_EXPORT void gk_fkvsorti(size_t, gk_fkv_t *);
+GKLIB_EXPORT void gk_fkvsortd(size_t, gk_fkv_t *);
+GKLIB_EXPORT void gk_dkvsorti(size_t, gk_dkv_t *);
+GKLIB_EXPORT void gk_dkvsortd(size_t, gk_dkv_t *);
+GKLIB_EXPORT void gk_skvsorti(size_t, gk_skv_t *);
+GKLIB_EXPORT void gk_skvsortd(size_t, gk_skv_t *);
+GKLIB_EXPORT void gk_idxkvsorti(size_t, gk_idxkv_t *);
+GKLIB_EXPORT void gk_idxkvsortd(size_t, gk_idxkv_t *);
 
 
 /*-------------------------------------------------------------
  * Selection routines
  *-------------------------------------------------------------*/
-int  gk_dfkvkselect(size_t, int, gk_fkv_t *);
-int  gk_ifkvkselect(size_t, int, gk_fkv_t *);
+GKLIB_EXPORT int  gk_dfkvkselect(size_t, int, gk_fkv_t *);
+GKLIB_EXPORT int  gk_ifkvkselect(size_t, int, gk_fkv_t *);
 
 
 /*-------------------------------------------------------------
  * Priority queue 
  *-------------------------------------------------------------*/
-GK_MKPQUEUE_PROTO(gk_ipq,   gk_ipq_t,   int,      gk_idx_t)
-GK_MKPQUEUE_PROTO(gk_i32pq, gk_i32pq_t, int32_t,  gk_idx_t)
-GK_MKPQUEUE_PROTO(gk_i64pq, gk_i64pq_t, int64_t,  gk_idx_t)
-GK_MKPQUEUE_PROTO(gk_fpq,   gk_fpq_t,   float,    gk_idx_t)
-GK_MKPQUEUE_PROTO(gk_dpq,   gk_dpq_t,   double,   gk_idx_t)
-GK_MKPQUEUE_PROTO(gk_idxpq, gk_idxpq_t, gk_idx_t, gk_idx_t)
+GK_MKPQUEUE_PROTO_EX(gk_ipq,   gk_ipq_t,   int,      gk_idx_t, GKLIB_EXPORT)
+GK_MKPQUEUE_PROTO_EX(gk_i32pq, gk_i32pq_t, int32_t,  gk_idx_t, GKLIB_EXPORT)
+GK_MKPQUEUE_PROTO_EX(gk_i64pq, gk_i64pq_t, int64_t,  gk_idx_t, GKLIB_EXPORT)
+GK_MKPQUEUE_PROTO_EX(gk_fpq,   gk_fpq_t,   float,    gk_idx_t, GKLIB_EXPORT)
+GK_MKPQUEUE_PROTO_EX(gk_dpq,   gk_dpq_t,   double,   gk_idx_t, GKLIB_EXPORT)
+GK_MKPQUEUE_PROTO_EX(gk_idxpq, gk_idxpq_t, gk_idx_t, gk_idx_t, GKLIB_EXPORT)
 
 
 /*-------------------------------------------------------------
  * HTable routines
  *-------------------------------------------------------------*/
-gk_HTable_t *HTable_Create(int nelements);
-void         HTable_Reset(gk_HTable_t *htable);
-void         HTable_Resize(gk_HTable_t *htable, int nelements);
-void         HTable_Insert(gk_HTable_t *htable, int key, int val);
-void         HTable_Delete(gk_HTable_t *htable, int key);
-int          HTable_Search(gk_HTable_t *htable, int key);
-int          HTable_GetNext(gk_HTable_t *htable, int key, int *val, int type);
-int          HTable_SearchAndDelete(gk_HTable_t *htable, int key);
-void         HTable_Destroy(gk_HTable_t *htable);
-int          HTable_HFunction(int nelements, int key);
+GKLIB_EXPORT gk_HTable_t *HTable_Create(int nelements);
+GKLIB_EXPORT void         HTable_Reset(gk_HTable_t *htable);
+GKLIB_EXPORT void         HTable_Resize(gk_HTable_t *htable, int nelements);
+GKLIB_EXPORT void         HTable_Insert(gk_HTable_t *htable, int key, int val);
+GKLIB_EXPORT void         HTable_Delete(gk_HTable_t *htable, int key);
+GKLIB_EXPORT int          HTable_Search(gk_HTable_t *htable, int key);
+GKLIB_EXPORT int          HTable_GetNext(gk_HTable_t *htable, int key, int *val, int type);
+GKLIB_EXPORT int          HTable_SearchAndDelete(gk_HTable_t *htable, int key);
+GKLIB_EXPORT void         HTable_Destroy(gk_HTable_t *htable);
+GKLIB_EXPORT int          HTable_HFunction(int nelements, int key);
  
 
 /*-------------------------------------------------------------
  * Tokenizer routines
  *-------------------------------------------------------------*/
-void gk_strtokenize(char *line, char *delim, gk_Tokens_t *tokens);
-void gk_freetokenslist(gk_Tokens_t *tokens);
+GKLIB_EXPORT void gk_strtokenize(char *line, char *delim, gk_Tokens_t *tokens);
+GKLIB_EXPORT void gk_freetokenslist(gk_Tokens_t *tokens);
 
 /*-------------------------------------------------------------
  * Encoder/Decoder
  *-------------------------------------------------------------*/
-void encodeblock(unsigned char *in, unsigned char *out);
-void decodeblock(unsigned char *in, unsigned char *out);
-void GKEncodeBase64(int nbytes, unsigned char *inbuffer, unsigned char *outbuffer);
-void GKDecodeBase64(int nbytes, unsigned char *inbuffer, unsigned char *outbuffer);
+GKLIB_EXPORT void encodeblock(unsigned char *in, unsigned char *out);
+GKLIB_EXPORT void decodeblock(unsigned char *in, unsigned char *out);
+GKLIB_EXPORT void GKEncodeBase64(int nbytes, unsigned char *inbuffer, unsigned char *outbuffer);
+GKLIB_EXPORT void GKDecodeBase64(int nbytes, unsigned char *inbuffer, unsigned char *outbuffer);
 
 
 /*-------------------------------------------------------------
  * random.c
  *-------------------------------------------------------------*/
-GK_MKRANDOM_PROTO(gk_c,   size_t, char)
-GK_MKRANDOM_PROTO(gk_i,   size_t, int)
-GK_MKRANDOM_PROTO(gk_i32, size_t, int32_t)
-GK_MKRANDOM_PROTO(gk_f,   size_t, float)
-GK_MKRANDOM_PROTO(gk_d,   size_t, double)
-GK_MKRANDOM_PROTO(gk_idx, size_t, gk_idx_t)
-GK_MKRANDOM_PROTO(gk_z,   size_t, ssize_t)
-GK_MKRANDOM_PROTO(gk_zu,  size_t, size_t)
-void gk_randinit(uint64_t);
-uint64_t gk_randint64(void);
-uint32_t gk_randint32(void);
-
-
-/*-------------------------------------------------------------
- * OpenMP fake functions
- *-------------------------------------------------------------*/
-#if !defined(__OPENMP__)
-void omp_set_num_threads(int num_threads);
-int omp_get_num_threads(void);
-int omp_get_max_threads(void);
-int omp_get_thread_num(void);
-int omp_get_num_procs(void);
-int omp_in_parallel(void);
-void omp_set_dynamic(int num_threads);
-int omp_get_dynamic(void);
-void omp_set_nested(int nested);
-int omp_get_nested(void);
-#endif /* __OPENMP__ */
+GK_MKRANDOM_PROTO_EX(gk_c,   size_t, char,     GKLIB_EXPORT)
+GK_MKRANDOM_PROTO_EX(gk_i,   size_t, int,      GKLIB_EXPORT)
+GK_MKRANDOM_PROTO_EX(gk_i32, size_t, int32_t,  GKLIB_EXPORT)
+GK_MKRANDOM_PROTO_EX(gk_f,   size_t, float,    GKLIB_EXPORT)
+GK_MKRANDOM_PROTO_EX(gk_d,   size_t, double,   GKLIB_EXPORT)
+GK_MKRANDOM_PROTO_EX(gk_idx, size_t, gk_idx_t, GKLIB_EXPORT)
+GK_MKRANDOM_PROTO_EX(gk_z,   size_t, ssize_t,  GKLIB_EXPORT)
+GK_MKRANDOM_PROTO_EX(gk_zu,  size_t, size_t,   GKLIB_EXPORT)
+GKLIB_EXPORT void gk_randinit(uint64_t);
+GKLIB_EXPORT uint64_t gk_randint64(void);
+GKLIB_EXPORT uint32_t gk_randint32(void);
 
 
 /*-------------------------------------------------------------
  * CSR-related functions
  *-------------------------------------------------------------*/
-gk_csr_t *gk_csr_Create(void);
-void gk_csr_Init(gk_csr_t *mat);
-void gk_csr_Free(gk_csr_t **mat);
-void gk_csr_FreeContents(gk_csr_t *mat);
-gk_csr_t *gk_csr_Dup(gk_csr_t *mat);
-gk_csr_t *gk_csr_ExtractSubmatrix(gk_csr_t *mat, int rstart, int nrows);
-gk_csr_t *gk_csr_ExtractRows(gk_csr_t *mat, int nrows, int *rind);
-gk_csr_t *gk_csr_ExtractPartition(gk_csr_t *mat, int *part, int pid);
-gk_csr_t **gk_csr_Split(gk_csr_t *mat, int *color);
-int gk_csr_DetermineFormat(char *filename, int format);
-gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering);
-void gk_csr_Write(gk_csr_t *mat, char *filename, int format, int writevals, int numbering);
-gk_csr_t *gk_csr_Prune(gk_csr_t *mat, int what, int minf, int maxf);
-gk_csr_t *gk_csr_LowFilter(gk_csr_t *mat, int what, int norm, float fraction);
-gk_csr_t *gk_csr_TopKPlusFilter(gk_csr_t *mat, int what, int topk, float keepval);
-gk_csr_t *gk_csr_ZScoreFilter(gk_csr_t *mat, int what, float zscore);
-void gk_csr_CompactColumns(gk_csr_t *mat);
-void gk_csr_SortIndices(gk_csr_t *mat, int what);
-void gk_csr_CreateIndex(gk_csr_t *mat, int what);
-void gk_csr_Normalize(gk_csr_t *mat, int what, int norm);
-void gk_csr_Scale(gk_csr_t *mat, int type);
-void gk_csr_ComputeSums(gk_csr_t *mat, int what);
-void gk_csr_ComputeNorms(gk_csr_t *mat, int what);
-void gk_csr_ComputeSquaredNorms(gk_csr_t *mat, int what);
-gk_csr_t *gk_csr_Shuffle(gk_csr_t *mat, int what, int summetric);
-gk_csr_t *gk_csr_Transpose(gk_csr_t *mat);
-float gk_csr_ComputeSimilarity(gk_csr_t *mat, int i1, int i2, int what, int simtype);
-float gk_csr_ComputePairSimilarity(gk_csr_t *mat_a, gk_csr_t *mat_b, int i1, int i2, int what, int simtype);
-int gk_csr_GetSimilarRows(gk_csr_t *mat, int nqterms, int *qind, float *qval,
+GKLIB_EXPORT gk_csr_t *gk_csr_Create(void);
+GKLIB_EXPORT void gk_csr_Init(gk_csr_t *mat);
+GKLIB_EXPORT void gk_csr_Free(gk_csr_t **mat);
+GKLIB_EXPORT void gk_csr_FreeContents(gk_csr_t *mat);
+GKLIB_EXPORT gk_csr_t *gk_csr_Dup(gk_csr_t *mat);
+GKLIB_EXPORT gk_csr_t *gk_csr_ExtractSubmatrix(gk_csr_t *mat, int rstart, int nrows);
+GKLIB_EXPORT gk_csr_t *gk_csr_ExtractRows(gk_csr_t *mat, int nrows, int *rind);
+GKLIB_EXPORT gk_csr_t *gk_csr_ExtractPartition(gk_csr_t *mat, int *part, int pid);
+GKLIB_EXPORT gk_csr_t **gk_csr_Split(gk_csr_t *mat, int *color);
+GKLIB_EXPORT int gk_csr_DetermineFormat(char *filename, int format);
+GKLIB_EXPORT gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering);
+GKLIB_EXPORT void gk_csr_Write(gk_csr_t *mat, char *filename, int format, int writevals, int numbering);
+GKLIB_EXPORT gk_csr_t *gk_csr_Prune(gk_csr_t *mat, int what, int minf, int maxf);
+GKLIB_EXPORT gk_csr_t *gk_csr_LowFilter(gk_csr_t *mat, int what, int norm, float fraction);
+GKLIB_EXPORT gk_csr_t *gk_csr_TopKPlusFilter(gk_csr_t *mat, int what, int topk, float keepval);
+GKLIB_EXPORT gk_csr_t *gk_csr_ZScoreFilter(gk_csr_t *mat, int what, float zscore);
+GKLIB_EXPORT void gk_csr_CompactColumns(gk_csr_t *mat);
+GKLIB_EXPORT void gk_csr_SortIndices(gk_csr_t *mat, int what);
+GKLIB_EXPORT void gk_csr_CreateIndex(gk_csr_t *mat, int what);
+GKLIB_EXPORT void gk_csr_Normalize(gk_csr_t *mat, int what, int norm);
+GKLIB_EXPORT void gk_csr_Scale(gk_csr_t *mat, int type);
+GKLIB_EXPORT void gk_csr_ComputeSums(gk_csr_t *mat, int what);
+GKLIB_EXPORT void gk_csr_ComputeNorms(gk_csr_t *mat, int what);
+GKLIB_EXPORT void gk_csr_ComputeSquaredNorms(gk_csr_t *mat, int what);
+GKLIB_EXPORT gk_csr_t *gk_csr_Shuffle(gk_csr_t *mat, int what, int summetric);
+GKLIB_EXPORT gk_csr_t *gk_csr_Transpose(gk_csr_t *mat);
+GKLIB_EXPORT float gk_csr_ComputeSimilarity(gk_csr_t *mat, int i1, int i2, int what, int simtype);
+GKLIB_EXPORT float gk_csr_ComputePairSimilarity(gk_csr_t *mat_a, gk_csr_t *mat_b, int i1, int i2, int what, int simtype);
+GKLIB_EXPORT int gk_csr_GetSimilarRows(gk_csr_t *mat, int nqterms, int *qind, float *qval,
         int simtype, int nsim, float minsim, gk_fkv_t *hits, int *_imarker,
         gk_fkv_t *i_cand);
-int gk_csr_FindConnectedComponents(gk_csr_t *mat, int32_t *cptr, int32_t *cind,
+GKLIB_EXPORT int gk_csr_FindConnectedComponents(gk_csr_t *mat, int32_t *cptr, int32_t *cind,
         int32_t *cids);
-gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op);
-gk_csr_t *gk_csr_ReorderSymmetric(gk_csr_t *mat, int32_t *perm, int32_t *iperm);
-void gk_csr_ComputeBFSOrderingSymmetric(gk_csr_t *mat, int maxdegree, int v, 
+GKLIB_EXPORT gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op);
+GKLIB_EXPORT gk_csr_t *gk_csr_ReorderSymmetric(gk_csr_t *mat, int32_t *perm, int32_t *iperm);
+GKLIB_EXPORT void gk_csr_ComputeBFSOrderingSymmetric(gk_csr_t *mat, int maxdegree, int v,
           int32_t **r_perm, int32_t **r_iperm);
-void gk_csr_ComputeBestFOrderingSymmetric(gk_csr_t *mat, int v, int type,
+GKLIB_EXPORT void gk_csr_ComputeBestFOrderingSymmetric(gk_csr_t *mat, int v, int type,
           int32_t **r_perm, int32_t **r_iperm);
 
 
 /* itemsets.c */
-void gk_find_frequent_itemsets(int ntrans, ssize_t *tranptr, int *tranind,
+GKLIB_EXPORT void gk_find_frequent_itemsets(int ntrans, ssize_t *tranptr, int *tranind,
         int minfreq, int maxfreq, int minlen, int maxlen,
         void (*process_itemset)(void *stateptr, int nitems, int *itemind,
                                 int ntrans, int *tranind),
@@ -359,62 +342,62 @@ void gk_find_frequent_itemsets(int ntrans, ssize_t *tranptr, int *tranind,
 
 
 /* evaluate.c */
-float ComputeAccuracy(int n, gk_fkv_t *list);
-float ComputeROCn(int n, int maxN, gk_fkv_t *list);
-float ComputeMedianRFP(int n, gk_fkv_t *list);
-float ComputeMean (int n, float *values);
-float ComputeStdDev(int  n, float *values);
+GKLIB_EXPORT float ComputeAccuracy(int n, gk_fkv_t *list);
+GKLIB_EXPORT float ComputeROCn(int n, int maxN, gk_fkv_t *list);
+GKLIB_EXPORT float ComputeMedianRFP(int n, gk_fkv_t *list);
+GKLIB_EXPORT float ComputeMean (int n, float *values);
+GKLIB_EXPORT float ComputeStdDev(int  n, float *values);
 
 
 /* mcore.c */
-gk_mcore_t *gk_mcoreCreate(size_t coresize);
-gk_mcore_t *gk_gkmcoreCreate(void);
-void gk_mcoreDestroy(gk_mcore_t **r_mcore, int showstats);
-void gk_gkmcoreDestroy(gk_mcore_t **r_mcore, int showstats);
-void *gk_mcoreMalloc(gk_mcore_t *mcore, size_t nbytes);
-void gk_mcorePush(gk_mcore_t *mcore);
-void gk_gkmcorePush(gk_mcore_t *mcore);
-void gk_mcorePop(gk_mcore_t *mcore);
-void gk_gkmcorePop(gk_mcore_t *mcore);
-void gk_mcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr);
-void gk_gkmcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr);
-void gk_mcoreDel(gk_mcore_t *mcore, void *ptr);
-void gk_gkmcoreDel(gk_mcore_t *mcore, void *ptr);
+GKLIB_EXPORT gk_mcore_t *gk_mcoreCreate(size_t coresize);
+GKLIB_EXPORT gk_mcore_t *gk_gkmcoreCreate(void);
+GKLIB_EXPORT void gk_mcoreDestroy(gk_mcore_t **r_mcore, int showstats);
+GKLIB_EXPORT void gk_gkmcoreDestroy(gk_mcore_t **r_mcore, int showstats);
+GKLIB_EXPORT void *gk_mcoreMalloc(gk_mcore_t *mcore, size_t nbytes);
+GKLIB_EXPORT void gk_mcorePush(gk_mcore_t *mcore);
+GKLIB_EXPORT void gk_gkmcorePush(gk_mcore_t *mcore);
+GKLIB_EXPORT void gk_mcorePop(gk_mcore_t *mcore);
+GKLIB_EXPORT void gk_gkmcorePop(gk_mcore_t *mcore);
+GKLIB_EXPORT void gk_mcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr);
+GKLIB_EXPORT void gk_gkmcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr);
+GKLIB_EXPORT void gk_mcoreDel(gk_mcore_t *mcore, void *ptr);
+GKLIB_EXPORT void gk_gkmcoreDel(gk_mcore_t *mcore, void *ptr);
 
 /* rw.c */
-int gk_rw_PageRank(gk_csr_t *mat, float lamda, float eps, int max_niter, float *pr);
+GKLIB_EXPORT int gk_rw_PageRank(gk_csr_t *mat, float lamda, float eps, int max_niter, float *pr);
 
 
 /* graph.c */
-gk_graph_t *gk_graph_Create(void);
-void gk_graph_Init(gk_graph_t *graph);
-void gk_graph_Free(gk_graph_t **graph);
-void gk_graph_FreeContents(gk_graph_t *graph);
-gk_graph_t *gk_graph_Read(char *filename, int format, int hasvals, 
+GKLIB_EXPORT gk_graph_t *gk_graph_Create(void);
+GKLIB_EXPORT void gk_graph_Init(gk_graph_t *graph);
+GKLIB_EXPORT void gk_graph_Free(gk_graph_t **graph);
+GKLIB_EXPORT void gk_graph_FreeContents(gk_graph_t *graph);
+GKLIB_EXPORT gk_graph_t *gk_graph_Read(char *filename, int format, int hasvals,
                  int numbering, int isfewgts, int isfvwgts, int isfvsizes);
-void gk_graph_Write(gk_graph_t *graph, char *filename, int format, int numbering);
-gk_graph_t *gk_graph_Dup(gk_graph_t *graph);
-gk_graph_t *gk_graph_Transpose(gk_graph_t *graph);
-gk_graph_t *gk_graph_ExtractSubgraph(gk_graph_t *graph, int vstart, int nvtxs);
-gk_graph_t *gk_graph_Reorder(gk_graph_t *graph, int32_t *perm, int32_t *iperm);
-int gk_graph_FindComponents(gk_graph_t *graph, int32_t *cptr, int32_t *cind);
-void gk_graph_ComputeBFSOrdering(gk_graph_t *graph, int v, int32_t **r_perm, 
+GKLIB_EXPORT void gk_graph_Write(gk_graph_t *graph, char *filename, int format, int numbering);
+GKLIB_EXPORT gk_graph_t *gk_graph_Dup(gk_graph_t *graph);
+GKLIB_EXPORT gk_graph_t *gk_graph_Transpose(gk_graph_t *graph);
+GKLIB_EXPORT gk_graph_t *gk_graph_ExtractSubgraph(gk_graph_t *graph, int vstart, int nvtxs);
+GKLIB_EXPORT gk_graph_t *gk_graph_Reorder(gk_graph_t *graph, int32_t *perm, int32_t *iperm);
+GKLIB_EXPORT int gk_graph_FindComponents(gk_graph_t *graph, int32_t *cptr, int32_t *cind);
+GKLIB_EXPORT void gk_graph_ComputeBFSOrdering(gk_graph_t *graph, int v, int32_t **r_perm,
          int32_t **r_iperm);
-void gk_graph_ComputeBestFOrdering0(gk_graph_t *graph, int v, int type,
+GKLIB_EXPORT void gk_graph_ComputeBestFOrdering0(gk_graph_t *graph, int v, int type,
               int32_t **r_perm, int32_t **r_iperm);
-void gk_graph_ComputeBestFOrdering(gk_graph_t *graph, int v, int type,
+GKLIB_EXPORT void gk_graph_ComputeBestFOrdering(gk_graph_t *graph, int v, int type,
               int32_t **r_perm, int32_t **r_iperm);
-void gk_graph_SingleSourceShortestPaths(gk_graph_t *graph, int v, void **r_sps);
-void gk_graph_SortAdjacencies(gk_graph_t *graph);
-gk_graph_t *gk_graph_MakeSymmetric(gk_graph_t *graph, int op);
+GKLIB_EXPORT void gk_graph_SingleSourceShortestPaths(gk_graph_t *graph, int v, void **r_sps);
+GKLIB_EXPORT void gk_graph_SortAdjacencies(gk_graph_t *graph);
+GKLIB_EXPORT gk_graph_t *gk_graph_MakeSymmetric(gk_graph_t *graph, int op);
 
 
 /* cache.c */
-gk_cache_t *gk_cacheCreate(uint32_t nway, uint32_t lnbits, size_t cnbits);
-void gk_cacheReset(gk_cache_t *cache);
-void gk_cacheDestroy(gk_cache_t **r_cache);
-int gk_cacheLoad(gk_cache_t *cache, size_t addr);
-double gk_cacheGetHitRate(gk_cache_t *cache);
+GKLIB_EXPORT gk_cache_t *gk_cacheCreate(uint32_t nway, uint32_t lnbits, size_t cnbits);
+GKLIB_EXPORT void gk_cacheReset(gk_cache_t *cache);
+GKLIB_EXPORT void gk_cacheDestroy(gk_cache_t **r_cache);
+GKLIB_EXPORT int gk_cacheLoad(gk_cache_t *cache, size_t addr);
+GKLIB_EXPORT double gk_cacheGetHitRate(gk_cache_t *cache);
 
 
 #ifdef __cplusplus
@@ -423,4 +406,3 @@ double gk_cacheGetHitRate(gk_cache_t *cache);
 
 
 #endif
-

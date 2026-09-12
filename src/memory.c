@@ -16,7 +16,7 @@ can be used to define other memory allocation routines.
 #include <GKlib.h>
 
 /* This is for the global mcore that tracks all heap allocations */
-static __thread gk_mcore_t *gkmcore = NULL;
+static GKLIB_THREAD_LOCAL gk_mcore_t *gkmcore = NULL;
 
 
 /*************************************************************************/
@@ -143,8 +143,7 @@ void gk_malloc_cleanup(int showstats)
     * It always allocates one byte of memory, even if 0 bytes are requested.
       This is to ensure that checks of returned values do not lead to NULL
       due to 0 bytes requested.
-    * It zeros-out the memory that is allocated. This is for a quick init
-      of the underlying datastructures.
+    * It records allocations when memory tracking is active.
 */
 /**************************************************************************/
 void *gk_malloc(size_t nbytes, char *msg)

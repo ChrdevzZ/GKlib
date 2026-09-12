@@ -1,0 +1,695 @@
+{
+  "coverage": {
+    "extensions": [
+      ".c",
+      ".cc",
+      ".cpp",
+      ".cxx",
+      ".h",
+      ".hh",
+      ".hpp",
+      ".hxx",
+      ".f",
+      ".f90",
+      ".in"
+    ],
+    "local_exclude_prefixes": [],
+    "local_extensions": [
+      ".c",
+      ".cc",
+      ".cpp",
+      ".cxx",
+      ".h",
+      ".hh",
+      ".hpp",
+      ".hxx",
+      ".f",
+      ".f90",
+      ".in"
+    ],
+    "required_paths": [
+      "CMakeLists.txt",
+      "Makefile",
+      "apps/CMakeLists.txt",
+      "GKlibConfig.cmake.in"
+    ],
+    "template_suffixes": [
+      ".h.in",
+      ".cmake.in"
+    ]
+  },
+  "files": [
+    {
+      "baseline_blob": "6c476418e699d407f7973171633e8ef1786bc249",
+      "id": "gklib-apps-cmakelists-txt",
+      "kind": "modified",
+      "local_path": "apps/CMakeLists.txt",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/CMakeLists.txt"
+    },
+    {
+      "baseline_blob": "6e3ace820f38b40607c7add48123c091c1ffb111",
+      "id": "gklib-apps-cmpnbrs-c",
+      "kind": "direct",
+      "local_path": "apps/cmpnbrs.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/cmpnbrs.c"
+    },
+    {
+      "baseline_blob": "aef808ef2a7deeaf9c85f62776c741ad601f16fd",
+      "id": "gklib-apps-csrcnv-c",
+      "kind": "direct",
+      "local_path": "apps/csrcnv.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/csrcnv.c"
+    },
+    {
+      "baseline_blob": "084a4b6a1ffaa2a811f1917c7073a2c1f1db43b9",
+      "id": "gklib-apps-fis-c",
+      "kind": "direct",
+      "local_path": "apps/fis.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/fis.c"
+    },
+    {
+      "baseline_blob": "d2191ea8d814bbdb61ba198a6cecf339b5c7bb74",
+      "id": "gklib-apps-gkgraph-c",
+      "kind": "direct",
+      "local_path": "apps/gkgraph.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/gkgraph.c"
+    },
+    {
+      "baseline_blob": "1e4b488ca196cfd16e85803ddd85432f9bac084d",
+      "id": "gklib-apps-gkrw-c",
+      "kind": "direct",
+      "local_path": "apps/gkrw.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/gkrw.c"
+    },
+    {
+      "baseline_blob": "65438368f30537fba04157567e15b2ce000943f2",
+      "id": "gklib-apps-gksort-c",
+      "kind": "direct",
+      "local_path": "apps/gksort.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/gksort.c"
+    },
+    {
+      "baseline_blob": "47d33b1b55e54ae93a51133e12a062da737d8e05",
+      "id": "gklib-apps-gkuniq-c",
+      "kind": "direct",
+      "local_path": "apps/gkuniq.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/gkuniq.c"
+    },
+    {
+      "baseline_blob": "a72b5809261791e3f49629e7fb983fb9cb4c1009",
+      "id": "gklib-apps-grkx-c",
+      "kind": "direct",
+      "local_path": "apps/grKx.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/grKx.c"
+    },
+    {
+      "baseline_blob": "53f35caea96acf17de937f8c4a075d95881f2355",
+      "id": "gklib-apps-m2mnbrs-c",
+      "kind": "direct",
+      "local_path": "apps/m2mnbrs.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/m2mnbrs.c"
+    },
+    {
+      "baseline_blob": "111d31c94bba2231689b930863edf4f2c3d12f0f",
+      "id": "gklib-apps-splatt2svd-c",
+      "kind": "direct",
+      "local_path": "apps/splatt2svd.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/splatt2svd.c"
+    },
+    {
+      "baseline_blob": "b241d3ff02db8f402ad20ff1f532c5b2cacf060e",
+      "id": "gklib-apps-strings-c",
+      "kind": "direct",
+      "local_path": "apps/strings.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "apps/strings.c"
+    },
+    {
+      "baseline_blob": "cc386c1aaaf33855de0201f9fbed94c0cbcbb9f6",
+      "id": "gklib-cmakelists-txt",
+      "kind": "modified",
+      "local_path": "CMakeLists.txt",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "CMakeLists.txt"
+    },
+    {
+      "baseline_blob": "ed5510f94a5583f7e7414433e173fe9b311a220e",
+      "id": "gklib-conf-check-thread-storage-c",
+      "kind": "removed",
+      "local_path": null,
+      "notes": "Removed by the build-system migration; retained as an upstream tombstone.",
+      "upstream_path": "conf/check_thread_storage.c"
+    },
+    {
+      "baseline_blob": "a37fbd01500c064bd2b35094240406958b2f47d3",
+      "id": "gklib-gklibconfig-cmake-in",
+      "kind": "template",
+      "local_path": "cmake/GKlibConfig.cmake.in",
+      "notes": "Relocated package-config template; manual placeholder review is required.",
+      "upstream_path": "GKlibConfig.cmake.in"
+    },
+    {
+      "baseline_blob": "b5b290b837773d90024f9f5aff6ae74a1fc7c183",
+      "id": "gklib-include-gk-arch-h",
+      "kind": "modified",
+      "local_path": "include/gk_arch.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_arch.h"
+    },
+    {
+      "baseline_blob": "68cb9a4cc0a12a89c423f413d29434f020868867",
+      "id": "gklib-include-gk-defs-h",
+      "kind": "direct",
+      "local_path": "include/gk_defs.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_defs.h"
+    },
+    {
+      "baseline_blob": "2c0fdd9683f74d269efdfc963732061bde98e87b",
+      "id": "gklib-include-gk-externs-h",
+      "kind": "modified",
+      "local_path": "include/gk_externs.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_externs.h"
+    },
+    {
+      "baseline_blob": "597c0802a21da77f6ef0c403ae524f009c8b5ef2",
+      "id": "gklib-include-gk-getopt-h",
+      "kind": "modified",
+      "local_path": "include/gk_getopt.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_getopt.h"
+    },
+    {
+      "baseline_blob": "c3f1b45307b4df4a9e4e8db95b54b4836ea8f27e",
+      "id": "gklib-include-gk-macros-h",
+      "kind": "modified",
+      "local_path": "include/gk_macros.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_macros.h"
+    },
+    {
+      "baseline_blob": "1231669db6a10c54b061c009f95c8eef17b1389d",
+      "id": "gklib-include-gk-mkblas-h",
+      "kind": "modified",
+      "local_path": "include/gk_mkblas.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_mkblas.h"
+    },
+    {
+      "baseline_blob": "78e216e0e7be2aafda9650ab12147b45b9793a1d",
+      "id": "gklib-include-gk-mkmemory-h",
+      "kind": "modified",
+      "local_path": "include/gk_mkmemory.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_mkmemory.h"
+    },
+    {
+      "baseline_blob": "50a5385b48568f69e58b979fac1028b4335a4d8d",
+      "id": "gklib-include-gk-mkpqueue-h",
+      "kind": "modified",
+      "local_path": "include/gk_mkpqueue.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_mkpqueue.h"
+    },
+    {
+      "baseline_blob": "10e8ee462de0b731c712d9fc83b2ad3b5dea7ea8",
+      "id": "gklib-include-gk-mkpqueue2-h",
+      "kind": "modified",
+      "local_path": "include/gk_mkpqueue2.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_mkpqueue2.h"
+    },
+    {
+      "baseline_blob": "4ccd12b77d4b9eb076075f2d06684b2469ae61d6",
+      "id": "gklib-include-gk-mkrandom-h",
+      "kind": "modified",
+      "local_path": "include/gk_mkrandom.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_mkrandom.h"
+    },
+    {
+      "baseline_blob": "48674db676b76489f2490ab406a7f15d9cece6b7",
+      "id": "gklib-include-gk-mksort-h",
+      "kind": "direct",
+      "local_path": "include/gk_mksort.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_mksort.h"
+    },
+    {
+      "baseline_blob": "a092f2227d33395b1b67b25874e48eed23a75c52",
+      "id": "gklib-include-gk-mkutils-h",
+      "kind": "modified",
+      "local_path": "include/gk_mkutils.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_mkutils.h"
+    },
+    {
+      "baseline_blob": "b89fc100773a671d705d13600a74a4b4c2adbe4c",
+      "id": "gklib-include-gk-ms-inttypes-h",
+      "kind": "removed",
+      "local_path": null,
+      "notes": "Removed by the build-system migration; retained as an upstream tombstone.",
+      "upstream_path": "include/gk_ms_inttypes.h"
+    },
+    {
+      "baseline_blob": "a1ef6faf79d4c67c2b4ab8e8de824fdafbc8f195",
+      "id": "gklib-include-gk-ms-stat-h",
+      "kind": "direct",
+      "local_path": "include/gk_ms_stat.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_ms_stat.h"
+    },
+    {
+      "baseline_blob": "7e200dc6fc6938fd3caf2073850056f0a739b882",
+      "id": "gklib-include-gk-ms-stdint-h",
+      "kind": "removed",
+      "local_path": null,
+      "notes": "Removed by the build-system migration; retained as an upstream tombstone.",
+      "upstream_path": "include/gk_ms_stdint.h"
+    },
+    {
+      "baseline_blob": "ce2e7e874267c0fc5ef05241b5753eba972a3e9a",
+      "id": "gklib-include-gk-proto-h",
+      "kind": "modified",
+      "local_path": "include/gk_proto.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_proto.h"
+    },
+    {
+      "baseline_blob": "2925e98291b7ca98f67307b848f4380fb17d5cc1",
+      "id": "gklib-include-gk-struct-h",
+      "kind": "direct",
+      "local_path": "include/gk_struct.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_struct.h"
+    },
+    {
+      "baseline_blob": "57c119101112f816be314098e8157d9ee32ecaea",
+      "id": "gklib-include-gk-types-h",
+      "kind": "direct",
+      "local_path": "include/gk_types.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gk_types.h"
+    },
+    {
+      "baseline_blob": "99beaef9ced831ba5eb0ebb74ff4c7e84a84b67e",
+      "id": "gklib-include-gklib-h",
+      "kind": "modified",
+      "local_path": "include/GKlib.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/GKlib.h"
+    },
+    {
+      "baseline_blob": "807c404ec24e2aa316d6e3061a63bc07f32e179a",
+      "id": "gklib-include-gkregex-h",
+      "kind": "modified",
+      "local_path": "include/gkregex.h",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "include/gkregex.h"
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-cmake-recordinstall-cmake-in",
+      "kind": "local",
+      "local_path": "cmake/RecordInstall.cmake.in",
+      "notes": "Local CMake template with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-cmake-uninstall-cmake-in",
+      "kind": "local",
+      "local_path": "cmake/uninstall.cmake.in",
+      "notes": "Local CMake template with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-config-header-template",
+      "kind": "local",
+      "local_path": "include/gklib_config.h.in",
+      "notes": "Local template for the generated configuration header.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-include-cmake",
+      "kind": "local",
+      "local_path": "include/CMakeLists.txt",
+      "notes": "Local generated-header and install rules.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-src-cmake",
+      "kind": "local",
+      "local_path": "src/CMakeLists.txt",
+      "notes": "Local library target definition.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-api-c",
+      "kind": "local",
+      "local_path": "tests/api.c",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-cxx-consumer-cpp",
+      "kind": "local",
+      "local_path": "tests/cxx_consumer.cpp",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-integration-assertions-assertion-consumer-c",
+      "kind": "local",
+      "local_path": "tests/integration/assertions/assertion_consumer.c",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-integration-openmp-cxx-main-cpp",
+      "kind": "local",
+      "local_path": "tests/integration/openmp-cxx/main.cpp",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-integration-openmp-cxx-main-f90",
+      "kind": "local",
+      "local_path": "tests/integration/openmp-cxx/main.f90",
+      "notes": "Pure Fortran package consumer for optional runtime linkage and allocation ownership.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-integration-static-direct-main-c",
+      "kind": "local",
+      "local_path": "tests/integration/static-direct/main.c",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-package-package-consumer-c",
+      "kind": "local",
+      "local_path": "tests/package/package_consumer.c",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-package-package-consumer-cpp",
+      "kind": "local",
+      "local_path": "tests/package/package_consumer.cpp",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-pcre-package-main-cpp",
+      "kind": "local",
+      "local_path": "tests/pcre-package/main.cpp",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-template-consumer-consumer-c",
+      "kind": "local",
+      "local_path": "tests/template-consumer/consumer.c",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-template-consumer-consumer-cpp",
+      "kind": "local",
+      "local_path": "tests/template-consumer/consumer.cpp",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-template-consumer-template-consumer-h",
+      "kind": "local",
+      "local_path": "tests/template-consumer/template_consumer.h",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-template-consumer-template-consumer-impl-h",
+      "kind": "local",
+      "local_path": "tests/template-consumer/template_consumer_impl.h",
+      "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": "1e68804f5d5e7e62cc288ba73508c0bfa2a8c586",
+      "id": "gklib-makefile",
+      "kind": "removed",
+      "local_path": null,
+      "notes": "Removed by the build-system migration; retained as an upstream tombstone.",
+      "upstream_path": "Makefile"
+    },
+    {
+      "baseline_blob": "afacd68a1e16213a93365ed00db4297cc6ef59b2",
+      "id": "gklib-src-b64-c",
+      "kind": "direct",
+      "local_path": "src/b64.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/b64.c"
+    },
+    {
+      "baseline_blob": "a0b95ca7adfc481edb3ad1c3d93e46954964a887",
+      "id": "gklib-src-blas-c",
+      "kind": "direct",
+      "local_path": "src/blas.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/blas.c"
+    },
+    {
+      "baseline_blob": "932e36d91b5081607e873819d062efef192da597",
+      "id": "gklib-src-cache-c",
+      "kind": "direct",
+      "local_path": "src/cache.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/cache.c"
+    },
+    {
+      "baseline_blob": "cca18cd5580fed1d506bdd1ee577608aefb4611e",
+      "id": "gklib-src-csr-c",
+      "kind": "direct",
+      "local_path": "src/csr.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/csr.c"
+    },
+    {
+      "baseline_blob": "c7025a3843b419bb44d7f84e245abf6bad129fa0",
+      "id": "gklib-src-error-c",
+      "kind": "modified",
+      "local_path": "src/error.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/error.c"
+    },
+    {
+      "baseline_blob": "ce805ced9eabcda2b2f7dc6836678fe1824c78a9",
+      "id": "gklib-src-evaluate-c",
+      "kind": "direct",
+      "local_path": "src/evaluate.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/evaluate.c"
+    },
+    {
+      "baseline_blob": "b1238ce65384177f30fa8f7d912f2e4b9b403daf",
+      "id": "gklib-src-fkvkselect-c",
+      "kind": "direct",
+      "local_path": "src/fkvkselect.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/fkvkselect.c"
+    },
+    {
+      "baseline_blob": "21081dd45d3c5cd6686ebc30e14e2ceea6135786",
+      "id": "gklib-src-fs-c",
+      "kind": "direct",
+      "local_path": "src/fs.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/fs.c"
+    },
+    {
+      "baseline_blob": "2e7e042e4cdedd164ec728a645a4761f401752fe",
+      "id": "gklib-src-getopt-c",
+      "kind": "modified",
+      "local_path": "src/getopt.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/getopt.c"
+    },
+    {
+      "baseline_blob": "e1e68db0e0397643c091e3713a7c0c6f0ac9e85a",
+      "id": "gklib-src-gk-util-c",
+      "kind": "direct",
+      "local_path": "src/gk_util.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/gk_util.c"
+    },
+    {
+      "baseline_blob": "3cbc671b39afc1c5bd85bb6b35eb467cccc3c090",
+      "id": "gklib-src-gkregex-c",
+      "kind": "modified",
+      "local_path": "src/gkregex.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/gkregex.c"
+    },
+    {
+      "baseline_blob": "8c19040eefab918618082535e259ca4196c7fd00",
+      "id": "gklib-src-graph-c",
+      "kind": "direct",
+      "local_path": "src/graph.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/graph.c"
+    },
+    {
+      "baseline_blob": "078e11434d5dbc9c707d3103f99209f6a5c580c3",
+      "id": "gklib-src-htable-c",
+      "kind": "direct",
+      "local_path": "src/htable.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/htable.c"
+    },
+    {
+      "baseline_blob": "289b4016a2ddca0f3a80775e94ab5e691ec4529d",
+      "id": "gklib-src-io-c",
+      "kind": "direct",
+      "local_path": "src/io.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/io.c"
+    },
+    {
+      "baseline_blob": "beb58aea57a98eaf818086a3a8cf48108bcd1104",
+      "id": "gklib-src-itemsets-c",
+      "kind": "direct",
+      "local_path": "src/itemsets.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/itemsets.c"
+    },
+    {
+      "baseline_blob": "fa4db84872c1dc9529c034190e6b97abe7d2dd07",
+      "id": "gklib-src-mcore-c",
+      "kind": "direct",
+      "local_path": "src/mcore.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/mcore.c"
+    },
+    {
+      "baseline_blob": "185d5462b0106994f1d9e657ac720b4668dbb57d",
+      "id": "gklib-src-memory-c",
+      "kind": "modified",
+      "local_path": "src/memory.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/memory.c"
+    },
+    {
+      "baseline_blob": "2fb8515d21a5ca0f8b017815fbf3f8bf1d345e0e",
+      "id": "gklib-src-pqueue-c",
+      "kind": "direct",
+      "local_path": "src/pqueue.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/pqueue.c"
+    },
+    {
+      "baseline_blob": "36986146209e5b6160d3dcb9e6d77a3bcd7fd61b",
+      "id": "gklib-src-random-c",
+      "kind": "direct",
+      "local_path": "src/random.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/random.c"
+    },
+    {
+      "baseline_blob": "7cd4391a04a30df7cf868912203b7b0a917909ef",
+      "id": "gklib-src-rw-c",
+      "kind": "direct",
+      "local_path": "src/rw.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/rw.c"
+    },
+    {
+      "baseline_blob": "f267a3ea027853ab66c54c40e8772833cb03ed8d",
+      "id": "gklib-src-seq-c",
+      "kind": "direct",
+      "local_path": "src/seq.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/seq.c"
+    },
+    {
+      "baseline_blob": "f0144aeaae9b4eb5ea873e828d937b9967a36c91",
+      "id": "gklib-src-sort-c",
+      "kind": "direct",
+      "local_path": "src/sort.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/sort.c"
+    },
+    {
+      "baseline_blob": "468119a80651d31b4b6def21f1d2b715d4b28515",
+      "id": "gklib-src-string-c",
+      "kind": "modified",
+      "local_path": "src/string.c",
+      "notes": "Correct escaped replacement indexing, empty global-match progress, suffix anchors and absent captures; copy known-length fragments without strncpy padding or its MSVC 19.51 intrinsic failure.",
+      "upstream_path": "src/string.c"
+    },
+    {
+      "baseline_blob": "3c4030b907b82697bcabc591b30e47e5765e81d6",
+      "id": "gklib-src-timers-c",
+      "kind": "modified",
+      "local_path": "src/timers.c",
+      "notes": "Remove the disabled OpenMP wall-clock branch and correct timing comments; retain clock/getrusage behavior.",
+      "upstream_path": "src/timers.c"
+    },
+    {
+      "baseline_blob": "5efd262db91307067bbbeee849d57232d55335ed",
+      "id": "gklib-src-tokenizer-c",
+      "kind": "direct",
+      "local_path": "src/tokenizer.c",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "src/tokenizer.c"
+    }
+  ],
+  "generated_headers": [
+    {
+      "generator": "CMake configure_file",
+      "notes": "Configured feature and thread-local-storage macros.",
+      "output": "build/include/gklib_config.h",
+      "template": "include/gklib_config.h.in"
+    },
+    {
+      "generator": "CMake GenerateExportHeader",
+      "notes": "Generated export/import macros for the configured library type.",
+      "output": "build/include/gklib_export.h",
+      "template": null
+    }
+  ],
+  "repository": "GKlib",
+  "schema_version": 1,
+  "upstream": {
+    "baseline": "3b7d61b9f885063c89901f3901fb4426f9cfb58f",
+    "url": "https://github.com/KarypisLab/GKlib.git"
+  }
+}

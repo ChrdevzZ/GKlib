@@ -12,13 +12,31 @@
 
 
 /*************************************************************************
-* Extern variable definition. Hopefully, the __thread makes them thread-safe.
+* Jump-buffer state uses the configured TLS policy and DLL accessors.
 **************************************************************************/
 #ifndef _GK_ERROR_C_
 /* declared in error.c */
-extern __thread int gk_cur_jbufs;
-extern __thread jmp_buf gk_jbufs[];
-extern __thread jmp_buf gk_jbuf;
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#if defined(_WIN32) && GKLIB_BUILD_SHARED_LIBS && !defined(GKLIB_STATIC_DEFINE)
+GKLIB_EXPORT int *gk_cur_jbufs_address(void);
+GKLIB_EXPORT jmp_buf *gk_jbufs_address(void);
+GKLIB_EXPORT jmp_buf *gk_jbuf_address(void);
+
+#define gk_cur_jbufs (*gk_cur_jbufs_address())
+#define gk_jbufs     (gk_jbufs_address())
+#define gk_jbuf      (*gk_jbuf_address())
+#else
+GKLIB_EXPORT extern GKLIB_THREAD_LOCAL int gk_cur_jbufs;
+GKLIB_EXPORT extern GKLIB_THREAD_LOCAL jmp_buf gk_jbufs[];
+GKLIB_EXPORT extern GKLIB_THREAD_LOCAL jmp_buf gk_jbuf;
+#endif
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
 

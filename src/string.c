@@ -82,7 +82,8 @@ based substitution function.
 \param options
   is a string specified options for the substitution operation. Currently the
   <tt>"i"</tt> (case insensitive) and <tt>"g"</tt> (global substitution) are 
-  supported.
+  supported. Global substitution advances past one input byte after an empty
+  match, retaining that byte, and stops after an empty match at the end.
 \param new_str 
   is a reference to a pointer that will store a pointer to the newly created 
   string that results from the substitutions. This string is allocated via 
@@ -131,7 +132,7 @@ int gk_strstr_replace(char *str, char *pattern, char *replacement, char *options
   offset = 0;
   nmatches = 0;
   do {
-    rc = regexec(&re, str+offset, 10, matches, 0);
+    rc = regexec(&re, str+offset, 10, matches, (offset > 0 ? REG_NOTBOL : 0));
 
     if (rc == REG_ESPACE) {
       gk_free((void **)new_str, LTERM);
@@ -157,7 +158,7 @@ int gk_strstr_replace(char *str, char *pattern, char *replacement, char *options
           nlen += matches[0].rm_so - (nlen-noffset);
           *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
         }
-        strncpy(*new_str+noffset, str+offset, matches[0].rm_so);
+        memcpy(*new_str+noffset, str+offset, matches[0].rm_so);
         noffset += matches[0].rm_so;
       }
 
@@ -170,7 +171,7 @@ int gk_strstr_replace(char *str, char *pattern, char *replacement, char *options
                 nlen += nlen + 1;
                 *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
               }
-              *new_str[noffset++] = replacement[++i];
+              (*new_str)[noffset++] = replacement[++i];
             }
             else {
               gk_free((void **)new_str, LTERM);
@@ -190,12 +191,16 @@ int gk_strstr_replace(char *str, char *pattern, char *replacement, char *options
                 return 0;
               }
 
+              /* A subexpression that did not participate contributes no text. */
+              if (matches[j].rm_so < 0)
+                break;
+
               if (nlen-noffset < matches[j].rm_eo-matches[j].rm_so) {
                 nlen += nlen + (matches[j].rm_eo-matches[j].rm_so);
                 *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
               }
 
-              strncpy(*new_str+noffset, str+offset+matches[j].rm_so, matches[j].rm_eo-matches[j].rm_so);
+              memcpy(*new_str+noffset, str+offset+matches[j].rm_so, matches[j].rm_eo-matches[j].rm_so);
               noffset += matches[j].rm_eo-matches[j].rm_so;
             }
             else {
@@ -217,6 +222,17 @@ int gk_strstr_replace(char *str, char *pattern, char *replacement, char *options
 
       /* Update the offset of str for the next match */
       offset += matches[0].rm_eo;
+
+      /* Empty matches must make progress without discarding input text. */
+      if (global && matches[0].rm_so == matches[0].rm_eo) {
+        if (offset == len)
+          break;
+        if (nlen-noffset < 1) {
+          nlen += nlen + 1;
+          *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
+        }
+        (*new_str)[noffset++] = str[offset++];
+      }
 
       if (!global) {
         /* Copy the right portion of the string if no 'g' option */

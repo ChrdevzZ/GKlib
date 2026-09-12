@@ -95,7 +95,7 @@ size_t PRFX ## argmax_n(size_t n, TYPE *x, size_t incx, size_t k)\
   size_t i, j, max_n;\
   PRFX ## kv_t *cand;\
 \
-  cand = PRFX ## kvmalloc(n, "GK_ARGMAX_N: cand");\
+  cand = PRFX ## kvmalloc(n, (char *)"GK_ARGMAX_N: cand");\
 \
   for (i=0, j=0; i<n; i++, j+=incx) {\
     cand[i].val = i;\
@@ -105,7 +105,7 @@ size_t PRFX ## argmax_n(size_t n, TYPE *x, size_t incx, size_t k)\
 \
   max_n = cand[k-1].val;\
 \
-  gk_free((void *)&cand, LTERM);\
+  gk_free((void **)&cand, LTERM);\
 \
   return max_n;\
 }\
@@ -187,17 +187,20 @@ TYPE *PRFX ## axpy(size_t n, TYPE alpha, TYPE *x, size_t incx, TYPE *y, size_t i
 
 
 #define GK_MKBLAS_PROTO(PRFX, TYPE, OUTTYPE) \
-  TYPE    *PRFX ## incset(size_t n, TYPE baseval, TYPE *x);\
-  TYPE     PRFX ## max(size_t n, TYPE *x, size_t incx);\
-  TYPE     PRFX ## min(size_t n, TYPE *x, size_t incx);\
-  size_t   PRFX ## argmax(size_t n, TYPE *x, size_t incx);\
-  size_t   PRFX ## argmin(size_t n, TYPE *x, size_t incx);\
-  size_t   PRFX ## argmax_n(size_t n, TYPE *x, size_t incx, size_t k);\
-  OUTTYPE  PRFX ## sum(size_t n, TYPE *x, size_t incx);\
-  TYPE    *PRFX ## scale(size_t n, TYPE alpha, TYPE *x, size_t incx);\
-  OUTTYPE  PRFX ## norm2(size_t n, TYPE *x, size_t incx);\
-  OUTTYPE  PRFX ## dot(size_t n, TYPE *x, size_t incx, TYPE *y, size_t incy);\
-  TYPE    *PRFX ## axpy(size_t n, TYPE alpha, TYPE *x, size_t incx, TYPE *y, size_t incy);\
+  GK_MKBLAS_PROTO_EX(PRFX, TYPE, OUTTYPE, )
+
+#define GK_MKBLAS_PROTO_EX(PRFX, TYPE, OUTTYPE, API) \
+  API TYPE    *PRFX ## incset(size_t n, TYPE baseval, TYPE *x);\
+  API TYPE     PRFX ## max(size_t n, TYPE *x, size_t incx);\
+  API TYPE     PRFX ## min(size_t n, TYPE *x, size_t incx);\
+  API size_t   PRFX ## argmax(size_t n, TYPE *x, size_t incx);\
+  API size_t   PRFX ## argmin(size_t n, TYPE *x, size_t incx);\
+  API size_t   PRFX ## argmax_n(size_t n, TYPE *x, size_t incx, size_t k);\
+  API OUTTYPE  PRFX ## sum(size_t n, TYPE *x, size_t incx);\
+  API TYPE    *PRFX ## scale(size_t n, TYPE alpha, TYPE *x, size_t incx);\
+  API OUTTYPE  PRFX ## norm2(size_t n, TYPE *x, size_t incx);\
+  API OUTTYPE  PRFX ## dot(size_t n, TYPE *x, size_t incx, TYPE *y, size_t incy);\
+  API TYPE    *PRFX ## axpy(size_t n, TYPE alpha, TYPE *x, size_t incx, TYPE *y, size_t incy);\
 
 
 #endif

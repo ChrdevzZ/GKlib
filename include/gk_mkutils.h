@@ -34,7 +34,10 @@ void PRFX ## array2csr(TYPE n, TYPE range, TYPE *array, TYPE *ptr, TYPE *ind)\
 
 
 #define GK_MKARRAY2CSR_PROTO(PRFX, TYPE)\
-  void PRFX ## array2csr(TYPE n, TYPE range, TYPE *array, TYPE *ptr, TYPE *ind);\
+  GK_MKARRAY2CSR_PROTO_EX(PRFX, TYPE, )
+
+#define GK_MKARRAY2CSR_PROTO_EX(PRFX, TYPE, API)\
+  API void PRFX ## array2csr(TYPE n, TYPE range, TYPE *array, TYPE *ptr, TYPE *ind);\
 
 
 #endif

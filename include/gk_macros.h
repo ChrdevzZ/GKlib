@@ -136,30 +136,48 @@
 /*-------------------------------------------------------------
  * Program Assertions
  *-------------------------------------------------------------*/
-#ifndef NDEBUG
-#   define ASSERT(expr)                                          \
+#ifndef GKLIB_ASSERTIONS_ENABLED
+#  ifdef NDEBUG
+#    define GKLIB_ASSERTIONS_ENABLED 0
+#  else
+#    define GKLIB_ASSERTIONS_ENABLED 1
+#  endif
+#endif
+
+#   define GKLIB_ASSERT(expr)                                          \
     if (!(expr)) {                                               \
         printf("***ASSERTION failed on line %d of file %s: " #expr "\n", \
               __LINE__, __FILE__);                               \
-        assert(expr);                                                \
+        abort();                                                \
     }
 
-#   define ASSERTP(expr,msg)                                          \
+#   define GKLIB_ASSERTP(expr,msg)                                          \
     if (!(expr)) {                                               \
         printf("***ASSERTION failed on line %d of file %s: " #expr "\n", \
               __LINE__, __FILE__);                               \
         printf msg ; \
         printf("\n"); \
-        assert(expr);                                                \
+        abort();                                                \
     }
+#if GKLIB_ASSERTIONS_ENABLED
+#   define ASSERT GKLIB_ASSERT
+#   define ASSERTP GKLIB_ASSERTP
 #else
 #   define ASSERT(expr) ;
 #   define ASSERTP(expr,msg) ;
 #endif 
 
-#ifndef NDEBUG2
-#   define ASSERT2 ASSERT
-#   define ASSERTP2 ASSERTP
+#ifndef GKLIB_ASSERTIONS_EXPENSIVE_ENABLED
+#  ifdef NDEBUG2
+#    define GKLIB_ASSERTIONS_EXPENSIVE_ENABLED 0
+#  else
+#    define GKLIB_ASSERTIONS_EXPENSIVE_ENABLED 1
+#  endif
+#endif
+
+#if GKLIB_ASSERTIONS_EXPENSIVE_ENABLED
+#   define ASSERT2 GKLIB_ASSERT
+#   define ASSERTP2 GKLIB_ASSERTP
 #else
 #   define ASSERT2(expr) ;
 #   define ASSERTP2(expr,msg) ;

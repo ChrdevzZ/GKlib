@@ -14,7 +14,7 @@
 
 
 /*************************************************************************
-* This function returns the CPU seconds
+* This function returns the wall-clock seconds
 **************************************************************************/
 double gk_WClockSeconds(void)
 {
@@ -31,22 +31,17 @@ double gk_WClockSeconds(void)
 
 
 /*************************************************************************
-* This function returns the CPU seconds
+* This function returns the CRT clock on Windows and CPU seconds elsewhere
 **************************************************************************/
 double gk_CPUSeconds(void)
 {
-//#ifdef __OPENMP__
-#ifdef __OPENMPXXXX__
-  return omp_get_wtime();
+#if defined(_WIN32) || defined(__MINGW32__)
+  return((double) clock()/CLOCKS_PER_SEC);
 #else
-  #if defined(_WIN32) || defined(__MINGW32__)
-    return((double) clock()/CLOCKS_PER_SEC);
-  #else
-    struct rusage r;
+  struct rusage r;
 
-    getrusage(RUSAGE_SELF, &r);
-    return ((r.ru_utime.tv_sec + r.ru_stime.tv_sec) + 1.0e-6*(r.ru_utime.tv_usec + r.ru_stime.tv_usec));
-  #endif
+  getrusage(RUSAGE_SELF, &r);
+  return ((r.ru_utime.tv_sec + r.ru_stime.tv_sec) + 1.0e-6*(r.ru_utime.tv_usec + r.ru_stime.tv_usec));
 #endif
 }
 

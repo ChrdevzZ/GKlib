@@ -10,8 +10,8 @@ This file contains functions dealing with error reporting and termination
 */
 
 
-#define _GK_ERROR_C_  /* this is needed to properly declare the gk_jub* variables
-                         as an extern function in GKlib.h */
+#define _GK_ERROR_C_  /* Define the jump-buffer storage here without importing
+                         its consumer declarations and DLL accessor macros. */
 
 #include <GKlib.h>
 
@@ -19,17 +19,42 @@ This file contains functions dealing with error reporting and termination
 /* These are the jmp_buf for the graceful exit in case of severe errors.
    Multiple buffers are defined to allow for recursive invokation. */
 #define MAX_JBUFS 128
-__thread int gk_cur_jbufs=-1;
-__thread jmp_buf gk_jbufs[MAX_JBUFS];
-__thread jmp_buf gk_jbuf;
+#if defined(_WIN32) && GKLIB_BUILD_SHARED_LIBS && !defined(GKLIB_STATIC_DEFINE)
+static GKLIB_THREAD_LOCAL int gk_cur_jbufs_storage=-1;
+static GKLIB_THREAD_LOCAL jmp_buf gk_jbufs_storage[MAX_JBUFS];
+static GKLIB_THREAD_LOCAL jmp_buf gk_jbuf_storage;
+
+GKLIB_EXPORT int *gk_cur_jbufs_address(void)
+{
+  return &gk_cur_jbufs_storage;
+}
+
+GKLIB_EXPORT jmp_buf *gk_jbufs_address(void)
+{
+  return gk_jbufs_storage;
+}
+
+GKLIB_EXPORT jmp_buf *gk_jbuf_address(void)
+{
+  return &gk_jbuf_storage;
+}
+
+#define gk_cur_jbufs gk_cur_jbufs_storage
+#define gk_jbufs     gk_jbufs_storage
+#define gk_jbuf      gk_jbuf_storage
+#else
+GKLIB_EXPORT GKLIB_THREAD_LOCAL int gk_cur_jbufs=-1;
+GKLIB_EXPORT GKLIB_THREAD_LOCAL jmp_buf gk_jbufs[MAX_JBUFS];
+GKLIB_EXPORT GKLIB_THREAD_LOCAL jmp_buf gk_jbuf;
+#endif
 
 typedef void (*gksighandler_t)(int);
 
 /* These are the holders of the old singal handlers for the trapped signals */
-static __thread gksighandler_t old_SIGMEM_handler;  /* Custom signal */
-static __thread gksighandler_t old_SIGERR_handler;  /* Custom signal */
-static __thread gksighandler_t old_SIGMEM_handlers[MAX_JBUFS];  /* Custom signal */
-static __thread gksighandler_t old_SIGERR_handlers[MAX_JBUFS];  /* Custom signal */
+static GKLIB_THREAD_LOCAL gksighandler_t old_SIGMEM_handler;  /* Custom signal */
+static GKLIB_THREAD_LOCAL gksighandler_t old_SIGERR_handler;  /* Custom signal */
+static GKLIB_THREAD_LOCAL gksighandler_t old_SIGMEM_handlers[MAX_JBUFS];  /* Custom signal */
+static GKLIB_THREAD_LOCAL gksighandler_t old_SIGERR_handlers[MAX_JBUFS];  /* Custom signal */
 
 /* The following is used to control if the gk_errexit() will actually abort or not.
    There is always a single copy of this variable */
@@ -178,7 +203,7 @@ char *gk_strerror(int errnum)
   return strerror(errnum);
 #else 
 #ifndef SUNOS
-  static __thread char buf[1024];
+  static GKLIB_THREAD_LOCAL char buf[1024];
 
   strerror_r(errnum, buf, 1024);
 

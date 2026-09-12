@@ -1,0 +1,117 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Ninja Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Ninja Release",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "portable",
+      "displayName": "Portable Release",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/portable",
+      "cacheVariables": {
+        "GKLIB_IPO": "OFF",
+        "GKLIB_NATIVE_OPTIMIZATION": false
+      }
+    },
+    {
+      "name": "optimized",
+      "displayName": "Optimized Release",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/optimized",
+      "cacheVariables": {
+        "GKLIB_IPO": "ON",
+        "GKLIB_NATIVE_OPTIMIZATION": false
+      }
+    },
+    {
+      "name": "shared",
+      "displayName": "Ninja Shared Debug",
+      "inherits": "default",
+      "binaryDir": "${sourceDir}/build/shared",
+      "cacheVariables": {
+        "GKLIB_BUILD_SHARED_LIBS": true
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "portable",
+      "configurePreset": "portable"
+    },
+    {
+      "name": "optimized",
+      "configurePreset": "optimized"
+    },
+    {
+      "name": "shared",
+      "configurePreset": "shared"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "portable",
+      "configurePreset": "portable",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "optimized",
+      "configurePreset": "optimized",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "shared",
+      "configurePreset": "shared",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

@@ -128,14 +128,17 @@ void PRFX ## SetMatrix(TYPE **matrix, size_t ndim1, size_t ndim2, TYPE value)\
 
 
 #define GK_MKALLOC_PROTO(PRFX, TYPE)\
-  TYPE  *PRFX ## malloc(size_t n, char *msg);\
-  TYPE  *PRFX ## realloc(TYPE *ptr, size_t n, char *msg);\
-  TYPE  *PRFX ## smalloc(size_t n, TYPE ival, char *msg);\
-  TYPE  *PRFX ## set(size_t n, TYPE val, TYPE *x);\
-  TYPE  *PRFX ## copy(size_t n, TYPE *a, TYPE *b);\
-  TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, char *errmsg);\
-  void   PRFX ## FreeMatrix(TYPE ***r_matrix, size_t ndim1, size_t ndim2);\
-  void   PRFX ## SetMatrix(TYPE **matrix, size_t ndim1, size_t ndim2, TYPE value);\
+  GK_MKALLOC_PROTO_EX(PRFX, TYPE, )
+
+#define GK_MKALLOC_PROTO_EX(PRFX, TYPE, API)\
+  API TYPE  *PRFX ## malloc(size_t n, char *msg);\
+  API TYPE  *PRFX ## realloc(TYPE *ptr, size_t n, char *msg);\
+  API TYPE  *PRFX ## smalloc(size_t n, TYPE ival, char *msg);\
+  API TYPE  *PRFX ## set(size_t n, TYPE val, TYPE *x);\
+  API TYPE  *PRFX ## copy(size_t n, TYPE *a, TYPE *b);\
+  API TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, char *errmsg);\
+  API void   PRFX ## FreeMatrix(TYPE ***r_matrix, size_t ndim1, size_t ndim2);\
+  API void   PRFX ## SetMatrix(TYPE **matrix, size_t ndim1, size_t ndim2, TYPE value);\
 
 
 

@@ -21,12 +21,12 @@ PQT *FPRFX ## Create2(ssize_t maxnodes)\
 {\
   PQT *queue; \
 \
-  if ((queue = (PQT *)gk_malloc(sizeof(PQT), "gk_pqCreate2: queue")) != NULL) {\
+  if ((queue = (PQT *)gk_malloc(sizeof(PQT), (char *)"gk_pqCreate2: queue")) != NULL) {\
     memset(queue, 0, sizeof(PQT));\
     queue->nnodes   = 0;\
     queue->maxnodes = maxnodes;\
-    queue->keys     = KMALLOC(maxnodes, "gk_pqCreate2: keys");\
-    queue->vals     = VMALLOC(maxnodes, "gk_pqCreate2: vals");\
+    queue->keys     = KMALLOC(maxnodes, (char *)"gk_pqCreate2: keys");\
+    queue->vals     = VMALLOC(maxnodes, (char *)"gk_pqCreate2: vals");\
 \
     if (queue->keys == NULL || queue->vals == NULL)\
       gk_free((void **)&queue->keys, &queue->vals, &queue, LTERM);\
@@ -201,15 +201,18 @@ int FPRFX ## CheckHeap2(PQT *queue)\
 
 
 #define GK_MKPQUEUE2_PROTO(FPRFX, PQT, KT, VT)\
-  PQT *  FPRFX ## Create2(ssize_t maxnodes);\
-  void   FPRFX ## Reset2(PQT *queue);\
-  void   FPRFX ## Destroy2(PQT **r_queue);\
-  size_t FPRFX ## Length2(PQT *queue);\
-  int    FPRFX ## Insert2(PQT *queue, VT node, KT key);\
-  int    FPRFX ## GetTop2(PQT *queue, VT *r_val);\
-  int    FPRFX ## SeeTopVal2(PQT *queue, VT *r_val);\
-  KT     FPRFX ## SeeTopKey2(PQT *queue);\
-  int    FPRFX ## CheckHeap2(PQT *queue);\
+  GK_MKPQUEUE2_PROTO_EX(FPRFX, PQT, KT, VT, )
+
+#define GK_MKPQUEUE2_PROTO_EX(FPRFX, PQT, KT, VT, API)\
+  API PQT *  FPRFX ## Create2(ssize_t maxnodes);\
+  API void   FPRFX ## Reset2(PQT *queue);\
+  API void   FPRFX ## Destroy2(PQT **r_queue);\
+  API size_t FPRFX ## Length2(PQT *queue);\
+  API int    FPRFX ## Insert2(PQT *queue, VT node, KT key);\
+  API int    FPRFX ## GetTop2(PQT *queue, VT *r_val);\
+  API int    FPRFX ## SeeTopVal2(PQT *queue, VT *r_val);\
+  API KT     FPRFX ## SeeTopKey2(PQT *queue);\
+  API int    FPRFX ## CheckHeap2(PQT *queue);\
 
 
 #endif

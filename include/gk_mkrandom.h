@@ -126,11 +126,14 @@ void FPRFX ## randArrayPermuteFine(RNGT n, VALT *p, int flag)\
 
 
 #define GK_MKRANDOM_PROTO(FPRFX, RNGT, VALT)\
-  void FPRFX ## srand(RNGT seed); \
-  RNGT FPRFX ## rand(void); \
-  RNGT FPRFX ## randInRange(RNGT max); \
-  void FPRFX ## randArrayPermute(RNGT n, VALT *p, RNGT nshuffles, int flag);\
-  void FPRFX ## randArrayPermuteFine(RNGT n, VALT *p, int flag);\
+  GK_MKRANDOM_PROTO_EX(FPRFX, RNGT, VALT, )
+
+#define GK_MKRANDOM_PROTO_EX(FPRFX, RNGT, VALT, API)\
+  API void FPRFX ## srand(RNGT seed); \
+  API RNGT FPRFX ## rand(void); \
+  API RNGT FPRFX ## randInRange(RNGT max); \
+  API void FPRFX ## randArrayPermute(RNGT n, VALT *p, RNGT nshuffles, int flag);\
+  API void FPRFX ## randArrayPermuteFine(RNGT n, VALT *p, int flag);\
 
 
 #endif

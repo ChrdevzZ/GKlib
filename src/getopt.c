@@ -53,7 +53,7 @@ This variable is set by getopt to point at the value of the option argument,
 for those options that accept arguments.
 */
 /*************************************************************************/
-char *gk_optarg;
+GKLIB_EXPORT char *gk_optarg;
 
 
 /*************************************************************************/
@@ -65,7 +65,7 @@ you can use this variable to determine where the remaining non-option arguments
 begin. 
 */
 /*************************************************************************/
-int gk_optind = 1; 
+GKLIB_EXPORT int gk_optind = 1;
 
 
 /*************************************************************************/
@@ -78,7 +78,7 @@ behavior. If you set this variable to zero, getopt does not print any messages,
 but it still returns the character ? to indicate an error.
 */
 /*************************************************************************/
-int gk_opterr = 1;
+GKLIB_EXPORT int gk_opterr = 1;
 
 
 /*************************************************************************/
@@ -89,7 +89,7 @@ missing required argument, it stores that option character in this
 variable. You can use this for providing your own diagnostic messages.
 */
 /*************************************************************************/
-int gk_optopt = '?';
+GKLIB_EXPORT int gk_optopt = '?';
 
 
 /*************************************************************************/

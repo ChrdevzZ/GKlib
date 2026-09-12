@@ -53,6 +53,7 @@ dkms.conf
 
 # GK things
 build/
+out/
 lib/
 .svn/
 
@@ -62,3 +63,7 @@ lib/
 
 # macOS Finder droppings
 .DS_Store
+
+# Python maintenance tool caches
+__pycache__/
+*.pyc

@@ -10,12 +10,17 @@
 #ifndef _GK_GETOPT_H_
 #define _GK_GETOPT_H_
 
+#include "gklib_export.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* Externals from getopt.c */
-extern char *gk_optarg;
-extern int gk_optind;
-extern int gk_opterr;
-extern int gk_optopt;
+GKLIB_EXPORT extern char *gk_optarg;
+GKLIB_EXPORT extern int gk_optind;
+GKLIB_EXPORT extern int gk_opterr;
+GKLIB_EXPORT extern int gk_optopt;
 
 
 /*! \brief The structure that stores the information about the command-line options 
@@ -52,12 +57,15 @@ struct gk_option {
 
 
 /* Function prototypes */
-extern int gk_getopt(int argc, char **argv, char *shortopts);
-extern int gk_getopt_long(int argc, char **argv, char *shortopts,
+GKLIB_EXPORT int gk_getopt(int argc, char **argv, char *shortopts);
+GKLIB_EXPORT int gk_getopt_long(int argc, char **argv, char *shortopts,
               struct gk_option *longopts, int *longind);
-extern int gk_getopt_long_only (int argc, char **argv,
+GKLIB_EXPORT int gk_getopt_long_only (int argc, char **argv,
               char *shortopts, struct gk_option *longopts, int *longind);
 
+#ifdef __cplusplus
+}
+#endif
 
 
 #endif

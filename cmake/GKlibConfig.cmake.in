@@ -1,0 +1,57 @@
+@PACKAGE_INIT@
+
+
+include(CMakeFindDependencyMacro)
+
+
+# Native static archives retain their producer's external runtime dependency.
+# A completed shared link needs deployment DLLs, not these development libs.
+if(@GKLIB_CONFIG_NEEDS_INTEL_RUNTIME@)
+  function(_gklib_find_intel_dependency)
+    list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
+    find_dependency(IntelRuntime MODULE)
+  endfunction()
+  _gklib_find_intel_dependency()
+  if(NOT TARGET IntelRuntime::C)
+    set(GKlib_FOUND FALSE)
+    set(GKlib_NOT_FOUND_MESSAGE "GKlib requires the external Intel C runtime; set IntelRuntime_ROOT")
+    return()
+  endif()
+endif()
+
+# Reconstruct optional public dependencies before loading the exported target.
+if(@GKLIB_CONFIG_NEEDS_PCRE@)
+  # Limit the module path override to dependency discovery in this function.
+  function(_gklib_find_pcre_dependency)
+    list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_FUNCTION_LIST_DIR}")
+    # A Fortran-only consumer cannot infer PCRE_STATIC from a C header probe.
+    # Preserve the linkage established when GKlib's C objects were compiled.
+    set(PCRE_LINKAGE "@GKLIB_CONFIG_PCRE_LINKAGE@")
+    find_dependency(PCRE)
+  endfunction()
+  _gklib_find_pcre_dependency()
+  if(NOT TARGET PCRE::POSIX)
+    set(GKlib_FOUND FALSE)
+    set(GKlib_NOT_FOUND_MESSAGE "GKlib requires the PCRE POSIX library")
+    return()
+  endif()
+endif()
+
+# Load the installed target only after every required dependency is available.
+include("${CMAKE_CURRENT_LIST_DIR}/GKlibTargets.cmake")
+
+# Recover the producer runtime after its installed configurations are known.
+# No consumer language or OpenMP compilation policy is imposed here.
+if(@GKLIB_CONFIG_NEEDS_OPENMP@)
+  include("${CMAKE_CURRENT_LIST_DIR}/GKlibOpenMP.cmake")
+  gklib_openmp_import(GKlib::GKlib)
+  if(DEFINED GKlib_FOUND AND NOT GKlib_FOUND)
+    return()
+  endif()
+endif()
+
+if(@GKLIB_CONFIG_NEEDS_INTEL_RUNTIME@)
+  intel_runtime_import(GKlib::GKlib GKlib "${CMAKE_CURRENT_LIST_DIR}")
+endif()
+
+check_required_components(GKlib)
