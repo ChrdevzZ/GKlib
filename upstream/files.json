@@ -212,7 +212,7 @@
       "id": "gklib-include-gk-mkmemory-h",
       "kind": "modified",
       "local_path": "include/gk_mkmemory.h",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; adds explicit export-attribute prototype forms and releases the outer table after a partial matrix allocation failure.",
       "upstream_path": "include/gk_mkmemory.h"
     },
     {
@@ -242,9 +242,9 @@
     {
       "baseline_blob": "48674db676b76489f2490ab406a7f15d9cece6b7",
       "id": "gklib-include-gk-mksort-h",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "include/gk_mksort.h",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; initializes the quicksort bottom sentinel before it can be popped.",
       "upstream_path": "include/gk_mksort.h"
     },
     {
@@ -361,10 +361,42 @@
     },
     {
       "baseline_blob": null,
+      "id": "gklib-local-src-memory-internal-h",
+      "kind": "local",
+      "local_path": "src/memory_internal.h",
+      "notes": "Local private declarations for transactional mcore and allocation-tracker operations.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-allocation-matrix-failure-c",
+      "kind": "local",
+      "local_path": "tests/allocation_matrix_failure.c",
+      "notes": "Local fault-injection fixture for partial matrix allocation cleanup.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
       "id": "gklib-local-tests-api-c",
       "kind": "local",
       "local_path": "tests/api.c",
-      "notes": "Local source with no baseline upstream counterpart.",
+      "notes": "Local public API, regex, template, allocation, and utility regression fixture.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-binary-reader-short-read-c",
+      "kind": "local",
+      "local_path": "tests/binary_reader_short_read.c",
+      "notes": "Local short-read fixture for binary-reader stream cleanup under returning and signal errors.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-binary-readers-c",
+      "kind": "local",
+      "local_path": "tests/binary_readers.c",
+      "notes": "Local regression fixture for binary readers with optional element-count outputs.",
       "upstream_path": null
     },
     {
@@ -409,18 +441,18 @@
     },
     {
       "baseline_blob": null,
-      "id": "gklib-local-tests-package-package-consumer-c",
+      "id": "gklib-local-tests-memory-failure-recovery-c",
       "kind": "local",
-      "local_path": "tests/package/package_consumer.c",
-      "notes": "Local source with no baseline upstream counterpart.",
+      "local_path": "tests/memory_failure_recovery.c",
+      "notes": "Local controlled-allocator fixture for transactional mcore and memory-tracker growth, reallocation and release recovery.",
       "upstream_path": null
     },
     {
       "baseline_blob": null,
-      "id": "gklib-local-tests-package-package-consumer-cpp",
+      "id": "gklib-local-tests-package-package-consumer-c",
       "kind": "local",
-      "local_path": "tests/package/package_consumer.cpp",
-      "notes": "Local source with no baseline upstream counterpart.",
+      "local_path": "tests/subproject/main.c",
+      "notes": "Minimal public-target smoke consumer for parent-project integration.",
       "upstream_path": null
     },
     {
@@ -429,6 +461,46 @@
       "kind": "local",
       "local_path": "tests/pcre-package/main.cpp",
       "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-regex-realloc-failure-c",
+      "kind": "local",
+      "local_path": "tests/regex_realloc_failure.c",
+      "notes": "Local controlled-allocator fixture for regular-expression DFA, register-pair, backtracking-stack and constrained-state allocation and copy failures.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-sanitizers-consumer-main-c",
+      "kind": "local",
+      "local_path": "tests/sanitizers/consumer/main.c",
+      "notes": "Local installed-package C consumer for sanitizer link and runtime deployment checks.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-sanitizers-consumer-main-cpp",
+      "kind": "local",
+      "local_path": "tests/sanitizers/consumer/main.cpp",
+      "notes": "Local installed-package C++ consumer for sanitizer link and runtime deployment checks.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-sanitizers-late-language-main-cpp",
+      "kind": "local",
+      "local_path": "tests/sanitizers/late-language/main.cpp",
+      "notes": "Local C++ consumer that enables its final-link language after embedding the ASan-instrumented C library.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-sort-sentinel-c",
+      "kind": "local",
+      "local_path": "tests/sort_sentinel.c",
+      "notes": "Local sort-family fixture that exercises the quicksort bottom sentinel.",
       "upstream_path": null
     },
     {
@@ -540,7 +612,7 @@
       "id": "gklib-src-getopt-c",
       "kind": "modified",
       "local_path": "src/getopt.c",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; keeps the GNU W; extension conditional on a supplied long-option table.",
       "upstream_path": "src/getopt.c"
     },
     {
@@ -556,7 +628,7 @@
       "id": "gklib-src-gkregex-c",
       "kind": "modified",
       "local_path": "src/gkregex.c",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; adds export and LLP64 compatibility, commits DFA and multibyte range reallocations safely, resets failed register pairs to a clean retryable state, commits backtracking-stack entries only after owned copies succeed, and propagates constrained-state allocation and node-set copy failures without registering partial state.",
       "upstream_path": "src/gkregex.c"
     },
     {
@@ -578,9 +650,9 @@
     {
       "baseline_blob": "289b4016a2ddca0f3a80775e94ab5e691ec4529d",
       "id": "gklib-src-io-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/io.c",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; binary readers accept a null optional element-count output, document it accurately, and close streams before reporting short reads.",
       "upstream_path": "src/io.c"
     },
     {
@@ -594,9 +666,9 @@
     {
       "baseline_blob": "fa4db84872c1dc9529c034190e6b97abe7d2dd07",
       "id": "gklib-src-mcore-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/mcore.c",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; reserves capacity before payload allocation and core mutation, commits growth transactionally, releases partial constructors, and preserves records or caller handles when marker-rejected deletion, pop or destruction returns.",
       "upstream_path": "src/mcore.c"
     },
     {
@@ -604,7 +676,7 @@
       "id": "gklib-src-memory-c",
       "kind": "modified",
       "local_path": "src/memory.c",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; uses configured TLS, reserves bookkeeping before payload allocation, preserves tracked ownership on failed reallocations or rejected frees, updates successful reallocations and outer-frame mcore stacks in place, releases failed matrix tables, and removes accepted bookkeeping before freeing storage.",
       "upstream_path": "src/memory.c"
     },
     {

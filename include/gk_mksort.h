@@ -136,6 +136,10 @@
       GKQSORT_TYPE *_hi; GKQSORT_TYPE *_lo;				\
     } _stack[_GKQSORT_STACK_SIZE], *_top = _stack + 1;			\
 									\
+    /* The bottom entry is popped only to terminate the outer loop. */	\
+    _stack[0]._lo = _base;						\
+    _stack[0]._hi = _base;						\
+									\
     while (_GKQSORT_STACK_NOT_EMPTY) {					\
       GKQSORT_TYPE *_left_ptr; GKQSORT_TYPE *_right_ptr;		\
 									\

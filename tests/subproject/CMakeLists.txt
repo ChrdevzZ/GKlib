@@ -28,5 +28,9 @@ if(_gklib_pic)
 endif()
 
 # Link through the public alias exposed to embedding projects.
-add_executable(gklib-subproject-consumer ../package/package_consumer.c)
+add_executable(gklib-subproject-consumer main.c)
 target_link_libraries(gklib-subproject-consumer PRIVATE GKlib::GKlib)
+set_property(TARGET gklib-subproject-consumer PROPERTY
+  INTERPROCEDURAL_OPTIMIZATION OFF)
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/consumer-$<CONFIG>.path"
+  CONTENT "$<TARGET_FILE:gklib-subproject-consumer>")

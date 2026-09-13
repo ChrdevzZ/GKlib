@@ -3,19 +3,29 @@ cmake_minimum_required(VERSION 3.24)
 #-------------------------------------------------------------------------------
 # INPUT AND WORKSPACE VALIDATION
 #-------------------------------------------------------------------------------
-foreach(_required IN ITEMS GKLIB_SOURCE_DIR WORK_ROOT GENERATOR CONFIG SCENARIO)
+foreach(_required IN ITEMS
+    GKLIB_SOURCE_DIR WORK_ROOT GENERATOR TEST_INITIAL_CACHE SCENARIO)
   if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
     message(FATAL_ERROR "${_required} is required")
   endif()
 endforeach()
+if(NOT DEFINED CONFIG)
+  message(FATAL_ERROR "CONFIG must be defined; an empty value is a valid configuration")
+endif()
+if(NOT EXISTS "${TEST_INITIAL_CACHE}")
+  message(FATAL_ERROR "Test initial cache does not exist: ${TEST_INITIAL_CACHE}")
+endif()
 
 set(_scenarios
   openmp-cxx
   openmp-fortran
   openmp-llvm
+  pcre-package
   pcre-fortran
   pcre-parent-target
   assertions
+  openmp-cache
+  subproject
   static-direct
   bundled-uninstall
   regex-link
@@ -43,6 +53,10 @@ file(MAKE_DIRECTORY "${_work}")
 # TOOLCHAIN FORWARDING
 #-------------------------------------------------------------------------------
 set(_generator_args -G "${GENERATOR}")
+if(DEFINED GENERATOR_INSTANCE AND NOT GENERATOR_INSTANCE STREQUAL "")
+  list(APPEND _generator_args
+    "-DCMAKE_GENERATOR_INSTANCE=${GENERATOR_INSTANCE}")
+endif()
 if(DEFINED GENERATOR_PLATFORM AND NOT GENERATOR_PLATFORM STREQUAL "")
   list(APPEND _generator_args -A "${GENERATOR_PLATFORM}")
 endif()
@@ -50,7 +64,7 @@ if(DEFINED GENERATOR_TOOLSET AND NOT GENERATOR_TOOLSET STREQUAL "")
   list(APPEND _generator_args -T "${GENERATOR_TOOLSET}")
 endif()
 
-set(_compiler_args)
+set(_compiler_args -C "${TEST_INITIAL_CACHE}")
 if(DEFINED C_COMPILER AND NOT C_COMPILER STREQUAL "")
   list(APPEND _compiler_args "-DCMAKE_C_COMPILER=${C_COMPILER}")
 endif()
@@ -62,8 +76,9 @@ endif()
 # COMMAND AND ASSERTION HELPERS
 #-------------------------------------------------------------------------------
 function(run_checked description)
+  cmake_parse_arguments(PARSE_ARGV 1 _command "" "" "")
   execute_process(
-    COMMAND ${ARGN}
+    COMMAND ${_command_UNPARSED_ARGUMENTS}
     RESULT_VARIABLE _result
     OUTPUT_VARIABLE _stdout
     ERROR_VARIABLE _stderr)
@@ -74,9 +89,12 @@ function(run_checked description)
 endfunction()
 
 function(build_target binary_dir)
-  run_checked("build in ${binary_dir}"
-    "${CMAKE_COMMAND}" --build "${binary_dir}"
-    --config "${CONFIG}" --parallel 2 ${ARGN})
+  set(_command "${CMAKE_COMMAND}" --build "${binary_dir}")
+  if(NOT CONFIG STREQUAL "")
+    list(APPEND _command --config "${CONFIG}")
+  endif()
+  list(APPEND _command --parallel 2 ${ARGN})
+  run_checked("build in ${binary_dir}" ${_command})
 endfunction()
 
 function(read_target_path path_file output_variable)
@@ -94,8 +112,16 @@ endfunction()
 function(expect_exit description executable should_succeed)
   # Runtime fixtures own any temporary data beside their built executable.
   get_filename_component(_run_directory "${executable}" DIRECTORY)
+  if(CROSSCOMPILING AND NOT EMULATOR)
+    set_property(GLOBAL PROPERTY GKLIB_RUNTIME_WAS_SKIPPED TRUE)
+    return()
+  endif()
+  set(_command "${executable}")
+  if(CROSSCOMPILING)
+    list(PREPEND _command ${EMULATOR})
+  endif()
   execute_process(
-    COMMAND "${executable}"
+    COMMAND ${_command}
     WORKING_DIRECTORY "${_run_directory}"
     RESULT_VARIABLE _result
     OUTPUT_VARIABLE _stdout
@@ -108,11 +134,85 @@ function(expect_exit description executable should_succeed)
   endif()
 endfunction()
 
+function(run_nested_tests description binary_dir)
+  if(CROSSCOMPILING AND NOT EMULATOR)
+    set_property(GLOBAL PROPERTY GKLIB_RUNTIME_WAS_SKIPPED TRUE)
+    return()
+  endif()
+  set(_command "${CMAKE_CTEST_COMMAND}" --test-dir "${binary_dir}")
+  if(NOT CONFIG STREQUAL "")
+    list(APPEND _command -C "${CONFIG}")
+  endif()
+  list(APPEND _command --output-on-failure --parallel 2)
+  run_checked("${description}" ${_command})
+endfunction()
+
 #-------------------------------------------------------------------------------
 # SCENARIOS
 #-------------------------------------------------------------------------------
 # Each branch owns an isolated producer/consumer flow under the validated root.
-if(SCENARIO STREQUAL "regex-link")
+if(SCENARIO STREQUAL "subproject")
+  set(_build "${_work}/build")
+  run_checked("configure GKlib as a subproject"
+    "${CMAKE_COMMAND}" -S "${GKLIB_SOURCE_DIR}/tests/subproject" -B "${_build}"
+    ${_generator_args} ${_compiler_args}
+    "-DCMAKE_BUILD_TYPE=${CONFIG}")
+  build_target("${_build}")
+  read_target_path("${_build}/consumer-${CONFIG}.path" _consumer_executable)
+  expect_exit("GKlib subproject consumer" "${_consumer_executable}" TRUE)
+
+elseif(SCENARIO STREQUAL "openmp-cache")
+  # find_library() consults an existing variable even with NO_CACHE. Poison
+  # both the former generic name and the new private name, then prove that the
+  # importer performs a fresh search without altering either parent cache.
+  set(_fixture "${_work}/fixture")
+  set(_module_dir "${_fixture}/cmake")
+  set(_runtime_dir "${_fixture}/runtime/lib")
+  file(MAKE_DIRECTORY "${_module_dir}" "${_runtime_dir}")
+  file(COPY "${GKLIB_SOURCE_DIR}/cmake/GKlibOpenMP.cmake"
+    DESTINATION "${_module_dir}")
+  file(WRITE "${_fixture}/CMakeLists.txt" [=[
+cmake_minimum_required(VERSION 3.24)
+project(OpenMPCacheIsolation LANGUAGES C)
+
+set(_runtime_name
+  "${CMAKE_STATIC_LIBRARY_PREFIX}gklib_fixture_runtime${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(_runtime "${CMAKE_CURRENT_SOURCE_DIR}/runtime/lib/${_runtime_name}")
+set(_unrelated "${CMAKE_CURRENT_SOURCE_DIR}/unrelated${CMAKE_STATIC_LIBRARY_SUFFIX}")
+file(WRITE "${_runtime}" "")
+file(WRITE "${_unrelated}" "")
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GKlibOpenMP-RELEASE.cmake"
+  "set(_gklib_openmp_names_RELEASE \"${_runtime_name}\")\n")
+
+set(library "${_unrelated}" CACHE FILEPATH "Parent cache sentinel")
+set(_gklib_openmp_runtime_library "${_unrelated}"
+  CACHE FILEPATH "Private-name cache sentinel")
+
+add_library(GKlib::GKlib UNKNOWN IMPORTED)
+set_property(TARGET GKlib::GKlib PROPERTY IMPORTED_CONFIGURATIONS RELEASE)
+set_property(TARGET GKlib::GKlib PROPERTY IMPORTED_LOCATION_RELEASE "${_runtime}")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/GKlibOpenMP.cmake")
+gklib_openmp_import(GKlib::GKlib)
+
+get_target_property(_resolved GKlib::OpenMPRuntime IMPORTED_LOCATION_RELEASE)
+if(NOT _resolved STREQUAL _runtime)
+  message(FATAL_ERROR
+    "OpenMP runtime resolved to parent cache entry: ${_resolved}")
+endif()
+foreach(_cache IN ITEMS library _gklib_openmp_runtime_library)
+  get_property(_value CACHE ${_cache} PROPERTY VALUE)
+  if(NOT _value STREQUAL _unrelated)
+    message(FATAL_ERROR "Importer modified parent cache ${_cache}: ${_value}")
+  endif()
+endforeach()
+]=])
+  run_checked("OpenMP runtime cache isolation"
+    "${CMAKE_COMMAND}" -S "${_fixture}" -B "${_work}/build"
+    ${_generator_args} ${_compiler_args}
+    "-DCMAKE_BUILD_TYPE=${CONFIG}"
+    "-DOpenMP_ROOT=${_fixture}/runtime")
+
+elseif(SCENARIO STREQUAL "regex-link")
   # Supply declarations without relying on a platform regex installation.
   # Only the positive case defines the functions required by the link probe.
   file(WRITE "${_work}/regex.h" [=[
@@ -183,7 +283,8 @@ elseif(SCENARIO MATCHES "^openmp-(cxx|fortran|llvm)$")
   endif()
   if(SCENARIO STREQUAL "openmp-fortran")
     set(_language Fortran)
-    set(_consumer_compilers "-DCMAKE_Fortran_COMPILER=${FORTRAN_COMPILER}")
+    set(_consumer_compilers ${_compiler_args}
+      "-DCMAKE_Fortran_COMPILER=${FORTRAN_COMPILER}")
   endif()
 
   # Each language consumes both library types. An absent development SDK must
@@ -232,6 +333,53 @@ elseif(SCENARIO MATCHES "^openmp-(cxx|fortran|llvm)$")
     read_target_path("${_consumer}/consumer-${CONFIG}.path" _consumer_executable)
     expect_exit("${_language}-only OpenMP package consumer" "${_consumer_executable}" TRUE)
 
+    if(NOT _shared)
+      # Add an unused producer configuration to the real installed package.
+      # Its deliberately absent runtime must matter only when the consumer
+      # explicitly maps to that configuration, not during ordinary discovery.
+      file(GLOB_RECURSE _package_configs "${_prefix}/*/GKlibConfig.cmake")
+      list(GET _package_configs 0 _package_config)
+      get_filename_component(_package_dir "${_package_config}" DIRECTORY)
+      set(_extra_config "${_package_dir}/GKlibTargets-unavailable.cmake")
+      file(WRITE "${_extra_config}" [=[
+get_target_property(_configs GKlib::GKlib IMPORTED_CONFIGURATIONS)
+list(GET _configs 0 _config)
+get_target_property(_archive GKlib::GKlib IMPORTED_LOCATION_${_config})
+set_property(TARGET GKlib::GKlib APPEND PROPERTY IMPORTED_CONFIGURATIONS UNAVAILABLE)
+set_property(TARGET GKlib::GKlib PROPERTY IMPORTED_LOCATION_UNAVAILABLE "${_archive}")
+]=])
+      file(WRITE "${_package_dir}/GKlibOpenMP-UNAVAILABLE.cmake"
+        "set(_gklib_openmp_names_UNAVAILABLE gklib_test_missing_openmp_runtime)\n")
+      run_checked("ignore unused OpenMP producer configuration"
+        "${CMAKE_COMMAND}"
+        -S "${GKLIB_SOURCE_DIR}/tests/integration/openmp-cxx"
+        -B "${_work}/unused-config" ${_generator_args} ${_consumer_compilers}
+        ${_runtime_options}
+        "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${_prefix}"
+        "-DGKLIB_CONSUMER_LANGUAGE=${_language}")
+      build_target("${_work}/unused-config")
+      read_target_path("${_work}/unused-config/consumer-${CONFIG}.path"
+        _consumer_executable)
+      expect_exit("unused OpenMP configuration consumer" "${_consumer_executable}" TRUE)
+
+      string(TOUPPER "${CONFIG}" _config_upper)
+      execute_process(COMMAND "${CMAKE_COMMAND}"
+        -S "${GKLIB_SOURCE_DIR}/tests/integration/openmp-cxx"
+        -B "${_work}/mapped-missing-config" ${_generator_args} ${_consumer_compilers}
+        "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${_prefix}"
+        "-DCMAKE_MAP_IMPORTED_CONFIG_${_config_upper}=Unavailable"
+        "-DGKLIB_CONSUMER_LANGUAGE=${_language}"
+        RESULT_VARIABLE _result OUTPUT_VARIABLE _stdout ERROR_VARIABLE _stderr)
+      set(_diagnostic "${_stdout}\n${_stderr}")
+      string(REPLACE "\r" " " _diagnostic "${_diagnostic}")
+      string(REPLACE "\n" " " _diagnostic "${_diagnostic}")
+      if(_result EQUAL 0 OR NOT _diagnostic MATCHES
+          "GKlib UNAVAILABLE requires producer OpenMP runtime +gklib_test_missing_openmp_runtime")
+        message(FATAL_ERROR
+          "Explicit OpenMP configuration mapping was not enforced:\n${_stdout}\n${_stderr}")
+      endif()
+    endif()
+
     execute_process(COMMAND "${CMAKE_COMMAND}"
       -S "${GKLIB_SOURCE_DIR}/tests/integration/openmp-cxx"
       -B "${_work}/missing-runtime" ${_generator_args} ${_consumer_compilers}
@@ -250,6 +398,43 @@ elseif(SCENARIO MATCHES "^openmp-(cxx|fortran|llvm)$")
       message(FATAL_ERROR "Missing producer runtime was not diagnosed:\n${_stdout}\n${_stderr}")
     endif()
   endforeach()
+
+elseif(SCENARIO STREQUAL "pcre-package")
+  if(NOT PARENT_PCRE_LINKAGE MATCHES "^(STATIC|SHARED)$")
+    message(FATAL_ERROR "PARENT_PCRE_LINKAGE must be STATIC or SHARED")
+  endif()
+
+  set(_sdk_args)
+  foreach(_variable IN ITEMS PCRE_INCLUDE_DIR PCRE_POSIX_LIBRARY PCRE_LIBRARY)
+    list(APPEND _sdk_args "-D${_variable}=${${_variable}}")
+  endforeach()
+  set(_producer "${_work}/producer")
+  set(_prefix "${_work}/prefix")
+  run_checked("configure PCRE GKlib for C++ package consumption"
+    "${CMAKE_COMMAND}" -S "${GKLIB_SOURCE_DIR}" -B "${_producer}"
+    ${_generator_args} ${_compiler_args} ${_sdk_args}
+    "-DCMAKE_BUILD_TYPE=${CONFIG}"
+    "-DPCRE_LINKAGE=${PARENT_PCRE_LINKAGE}"
+    -DGKLIB_REGEX_BACKEND=PCRE
+    -DGKLIB_IPO=OFF
+    -DGKLIB_BUILD_SHARED_LIBS=OFF
+    -DGKLIB_BUILD_PROGRAMS=OFF
+    -DGKLIB_BUILD_TESTING=OFF
+    -DGKLIB_INSTALL=ON)
+  build_target("${_producer}")
+  run_checked("install PCRE GKlib for C++ package consumption"
+    "${CMAKE_COMMAND}" --install "${_producer}"
+    --config "${CONFIG}" --prefix "${_prefix}")
+
+  set(_consumer "${_work}/consumer")
+  run_checked("configure C++ PCRE package consumer"
+    "${CMAKE_COMMAND}" -S "${GKLIB_SOURCE_DIR}/tests/pcre-package"
+    -B "${_consumer}" ${_generator_args} ${_compiler_args} ${_sdk_args}
+    "-DCMAKE_BUILD_TYPE=${CONFIG}"
+    "-DCMAKE_PREFIX_PATH=${_prefix}"
+    "-DEXPECT_PCRE_LINKAGE=${PARENT_PCRE_LINKAGE}")
+  build_target("${_consumer}")
+  run_nested_tests("run C++ PCRE package consumer" "${_consumer}")
 
 elseif(SCENARIO STREQUAL "pcre-fortran")
   # The installed PCRE interface must be usable without enabling C or C++ in
@@ -272,7 +457,7 @@ elseif(SCENARIO STREQUAL "pcre-fortran")
   set(_consumer "${_work}/consumer")
   run_checked("configure Fortran-only PCRE package consumer"
     "${CMAKE_COMMAND}" -S "${GKLIB_SOURCE_DIR}/tests/integration/openmp-cxx"
-    -B "${_consumer}" ${_generator_args} ${_sdk_args}
+    -B "${_consumer}" ${_generator_args} ${_compiler_args} ${_sdk_args}
     "-DCMAKE_Fortran_COMPILER=${FORTRAN_COMPILER}"
     "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${_prefix}"
     -DGKLIB_CONSUMER_LANGUAGE=Fortran)
@@ -413,7 +598,7 @@ add_subdirectory("${GKLIB_SOURCE_DIR}" gklib)
   set(_consumer "${_work}/consumer")
   run_checked("configure Fortran consumer of parent-target PCRE package"
     "${CMAKE_COMMAND}" -S "${GKLIB_SOURCE_DIR}/tests/integration/openmp-cxx"
-    -B "${_consumer}" ${_generator_args} ${_sdk_args}
+    -B "${_consumer}" ${_generator_args} ${_compiler_args} ${_sdk_args}
     "-DCMAKE_Fortran_COMPILER=${FORTRAN_COMPILER}"
     "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${_prefix}"
     -DGKLIB_CONSUMER_LANGUAGE=Fortran)
@@ -436,7 +621,7 @@ add_subdirectory("${GKLIB_SOURCE_DIR}" gklib)
   set(_direct_consumer "${_work}/direct-consumer")
   run_checked("configure Fortran consumer of direct PCRE parent target"
     "${CMAKE_COMMAND}" -S "${GKLIB_SOURCE_DIR}/tests/integration/openmp-cxx"
-    -B "${_direct_consumer}" ${_generator_args} ${_sdk_args}
+    -B "${_direct_consumer}" ${_generator_args} ${_compiler_args} ${_sdk_args}
     "-DCMAKE_Fortran_COMPILER=${FORTRAN_COMPILER}"
     "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${_direct_prefix}"
     -DGKLIB_CONSUMER_LANGUAGE=Fortran)
@@ -472,7 +657,7 @@ add_subdirectory("${GKLIB_SOURCE_DIR}" gklib)
   set(_explicit_consumer "${_work}/explicit-consumer")
   run_checked("configure Fortran consumer of explicit parent PCRE package"
     "${CMAKE_COMMAND}" -S "${GKLIB_SOURCE_DIR}/tests/integration/openmp-cxx"
-    -B "${_explicit_consumer}" ${_generator_args} ${_sdk_args}
+    -B "${_explicit_consumer}" ${_generator_args} ${_compiler_args} ${_sdk_args}
     "-DCMAKE_Fortran_COMPILER=${FORTRAN_COMPILER}"
     "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${_explicit_prefix}"
     -DGKLIB_CONSUMER_LANGUAGE=Fortran)
@@ -511,46 +696,103 @@ elseif(SCENARIO STREQUAL "template-consumer")
       -B "${_consumer}" ${_generator_args} ${_compiler_args}
       "-DCMAKE_BUILD_TYPE=${CONFIG}" "-DCMAKE_PREFIX_PATH=${_prefix}")
     build_target("${_consumer}")
-    run_checked("run C/C++ template consumers (${_shared})"
-      "${CMAKE_CTEST_COMMAND}" --test-dir "${_consumer}"
-      -C "${CONFIG}" --output-on-failure --parallel 2)
+    run_nested_tests("run C/C++ template consumers (${_shared})"
+      "${_consumer}")
   endforeach()
 
 elseif(SCENARIO STREQUAL "assertions")
-  # Exercise ordinary and expensive assertion controls independently.
+  # Exercise both assertion tiers for every ON/OFF policy combination. The
+  # verifier requires the deliberate SIGABRT path, its marker and GKlib's own
+  # diagnostic instead of treating an arbitrary process failure as success.
   set(_fixture "${GKLIB_SOURCE_DIR}/tests/integration/assertions")
+  set(_verifier "${_fixture}/verify.cmake")
 
-  set(_ordinary_build "${_work}/ordinary-on")
-  run_checked("configure ordinary-on expensive-off assertions"
-    "${CMAKE_COMMAND}" -S "${_fixture}" -B "${_ordinary_build}"
-    ${_generator_args} ${_compiler_args}
-    "-DCMAKE_BUILD_TYPE=${CONFIG}"
-    "-DGKLIB_SOURCE_DIR=${GKLIB_SOURCE_DIR}"
-    -DGKLIB_ASSERTIONS=ON
-    -DGKLIB_ASSERTIONS_EXPENSIVE=OFF)
-  build_target("${_ordinary_build}")
-  read_target_path(
-    "${_ordinary_build}/assert-ordinary-${CONFIG}.path" _ordinary_executable)
-  read_target_path(
-    "${_ordinary_build}/assert-expensive-${CONFIG}.path" _expensive_off_executable)
-  expect_exit("ASSERT(0) with assertions ON and consumer NDEBUG"
-    "${_ordinary_executable}" FALSE)
-  expect_exit("ASSERT2(0) with expensive assertions OFF"
-    "${_expensive_off_executable}" TRUE)
+  function(verify_assertion description executable kind expected)
+    if(CROSSCOMPILING AND NOT EMULATOR)
+      set_property(GLOBAL PROPERTY GKLIB_RUNTIME_WAS_SKIPPED TRUE)
+      return()
+    endif()
+    run_checked("${description}"
+      "${CMAKE_COMMAND}"
+      "-DDESCRIPTION=${description}"
+      "-DEXECUTABLE=${executable}"
+      "-DASSERTION_KIND=${kind}"
+      "-DEXPECT_TRIGGER=${expected}"
+      "-DEXECUTION_PREFIX=${EMULATOR}"
+      -P "${_verifier}")
+  endfunction()
 
-  set(_expensive_build "${_work}/expensive-on")
-  run_checked("configure ordinary-off expensive-on assertions"
-    "${CMAKE_COMMAND}" -S "${_fixture}" -B "${_expensive_build}"
-    ${_generator_args} ${_compiler_args}
-    "-DCMAKE_BUILD_TYPE=${CONFIG}"
-    "-DGKLIB_SOURCE_DIR=${GKLIB_SOURCE_DIR}"
-    -DGKLIB_ASSERTIONS=OFF
-    -DGKLIB_ASSERTIONS_EXPENSIVE=ON)
-  build_target("${_expensive_build}")
-  read_target_path(
-    "${_expensive_build}/assert-expensive-${CONFIG}.path" _expensive_on_executable)
-  expect_exit("ASSERT2(0) with ordinary assertions OFF and expensive assertions ON"
-    "${_expensive_on_executable}" FALSE)
+  function(reject_assertion_protocol description executable kind argument reason)
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}"
+        "-DDESCRIPTION=${description}"
+        "-DEXECUTABLE=${executable}"
+        "-DEXECUTABLE_ARGUMENTS=${argument}"
+        "-DEXECUTION_PREFIX=${EMULATOR}"
+        "-DASSERTION_KIND=${kind}"
+        -DEXPECT_TRIGGER=ON
+        -DEXECUTION_TIMEOUT=1
+        -P "${_verifier}"
+      RESULT_VARIABLE _result
+      OUTPUT_VARIABLE _stdout
+      ERROR_VARIABLE _stderr)
+    set(_output "${_stdout}\n${_stderr}")
+    string(REPLACE "\r" " " _output "${_output}")
+    string(REPLACE "\n" " " _output "${_output}")
+    if(_result EQUAL 0 OR NOT _output MATCHES "${reason}")
+      message(FATAL_ERROR
+        "Assertion protocol accepted ${description} (${_result})\n${_stdout}\n${_stderr}")
+    endif()
+  endfunction()
+
+  foreach(_ordinary IN ITEMS OFF ON)
+    foreach(_expensive IN ITEMS OFF ON)
+      string(TOLOWER "${_ordinary}-${_expensive}" _combination)
+      set(_assertion_build "${_work}/${_combination}")
+      run_checked("configure assertions ${_ordinary}/${_expensive}"
+        "${CMAKE_COMMAND}" -S "${_fixture}" -B "${_assertion_build}"
+        ${_generator_args} ${_compiler_args}
+        "-DCMAKE_BUILD_TYPE=${CONFIG}"
+        "-DGKLIB_SOURCE_DIR=${GKLIB_SOURCE_DIR}"
+        "-DGKLIB_ASSERTIONS=${_ordinary}"
+        "-DGKLIB_ASSERTIONS_EXPENSIVE=${_expensive}")
+      build_target("${_assertion_build}")
+
+      foreach(_kind IN ITEMS ordinary expensive)
+        read_target_path(
+          "${_assertion_build}/assert-${_kind}-${CONFIG}.path"
+          _assertion_executable)
+        if(_kind STREQUAL "ordinary")
+          set(_expected "${_ordinary}")
+        else()
+          set(_expected "${_expensive}")
+        endif()
+        verify_assertion(
+          "${_kind} assertion with ordinary=${_ordinary}, expensive=${_expensive}"
+          "${_assertion_executable}" "${_kind}" "${_expected}")
+      endforeach()
+    endforeach()
+  endforeach()
+
+  if(NOT CROSSCOMPILING)
+    # Prove the verifier rejects each false-positive mode that the former
+    # nonzero-only check accepted. These host-process protocol cases are not
+    # repeated through emulators, whose process and timeout semantics differ.
+    read_target_path("${_work}/on-on/assert-ordinary-${CONFIG}.path"
+      _protocol_executable)
+    reject_assertion_protocol("unrelated exit" "${_protocol_executable}"
+      ordinary unrelated-exit "did not exit through")
+    reject_assertion_protocol("marker-only exit" "${_protocol_executable}"
+      ordinary marker-only "did not emit the GKlib assertion diagnostic")
+    reject_assertion_protocol("wrong assertion tier" "${_protocol_executable}"
+      ordinary wrong-tier "did not emit the expected start marker")
+    reject_assertion_protocol("ordinary crash" "${_protocol_executable}"
+      ordinary plain-crash "did not exit through")
+    reject_assertion_protocol("timeout" "${_protocol_executable}"
+      ordinary timeout "Process +terminated due to timeout")
+    reject_assertion_protocol("startup failure" "${_work}/missing-assertion-test"
+      ordinary "" "did not emit the expected start marker")
+  endif()
 
 elseif(SCENARIO STREQUAL "static-direct")
   # Windows direct-header consumers must receive the static export definition.
@@ -667,4 +909,9 @@ elseif(SCENARIO STREQUAL "bundled-uninstall")
 
 else()
   message(FATAL_ERROR "Unknown integration scenario: ${SCENARIO}")
+endif()
+
+get_property(_runtime_was_skipped GLOBAL PROPERTY GKLIB_RUNTIME_WAS_SKIPPED)
+if(_runtime_was_skipped)
+  message("GKLIB_RUNTIME_SKIPPED: no cross-compiling emulator")
 endif()

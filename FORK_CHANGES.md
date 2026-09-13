@@ -80,6 +80,19 @@ experimental VCOMP runtime from the LLVM selection made through CMake's
 `libompd.lib`, respectively. The LLVM SDK and runtime DLL remain external and
 are never bundled by GKlib.
 
+Windows MSVC-ABI Clang and Intel LLVM AddressSanitizer builds record the
+producer-selected runtime library filenames for each available configuration.
+Installed static consumers recover those libraries from a compatible compiler
+SDK through `CompilerRuntime_ROOT` or `CMAKE_PREFIX_PATH`; packages do not export producer
+SDK paths or redistribute compiler runtime libraries and DLLs. Build-tree tools
+and tests copy the selected DLLs locally, while installed shared libraries keep
+runtime deployment as a consumer responsibility. ASan final links using LLD
+disable string tail merging according to the final link language and linker
+selection; ordinary `link.exe` links do not receive that LLD-only workaround.
+Transient Windows permission or sharing conflicts during build-tree runtime
+copying receive a bounded retry; missing inputs and persistent failures remain
+fatal.
+
 Parent-provided PCRE targets retain explicit linkage metadata or derive it only
 from concrete `PCRE::POSIX`/`PCRE::pcreposix` library types. Installing from an
 opaque interface requires the parent to state `PCRE_LINKAGE=STATIC|SHARED`.
@@ -95,12 +108,15 @@ files did not move. See the mapping for unchanged files and intentional removals
 | `include/GKlib.h` | Include generated configuration/export headers, select bundled regex declarations when configured, and use the standard `_OPENMP` feature macro before including the runtime header. |
 | `include/gk_arch.h` | Use standard integer headers instead of obsolete MSVC polyfills; retain needed platform compatibility. |
 | `include/gk_externs.h`, `src/error.c` | Use configured TLS; Windows shared error-state accessors preserve source access while avoiding direct imported TLS data assumptions. This is a DLL representation change. |
-| `include/gk_getopt.h`, `src/getopt.c` | Include the generated export definition directly so the public getopt header remains standalone, and apply DLL import/export attributes to declarations and global definitions. |
+| `include/gk_getopt.h`, `src/getopt.c` | Include the generated export definition directly so the public getopt header remains standalone, and apply DLL import/export attributes to declarations and global definitions. Keep the GNU `W;` long-option extension conditional on a supplied long-option table so ordinary `gk_getopt` remains a safe short-option parser. |
 | `include/gk_proto.h` | Export GKlib-owned functions and template instantiations explicitly; remove undeclared-ownership fallback declarations for OpenMP runtime functions that GKlib does not define. |
 | `include/gk_macros.h` | Separate normal/expensive assertion policy with GKlib-specific macros and retain termination when an enabled assertion fails. |
-| `include/gk_mkblas.h`, `include/gk_mkmemory.h`, `include/gk_mkpqueue.h`, `include/gk_mkpqueue2.h`, `include/gk_mkrandom.h`, `include/gk_mkutils.h` | Add `_PROTO_EX` forms with an explicit export-attribute argument. Original forms remain caller-owned and do not inherit GKlib DLL ownership. |
-| `include/gkregex.h`, `src/gkregex.c` | Apply export/configuration declarations, avoid redefining alloca and use pointer-sized integer casts on LLP64 systems. Preserve third-party attribution. |
-| `src/memory.c` | Use configured TLS for allocation tracking and correct the `gk_malloc` comment: allocation contents are not initialized. |
+| `include/gk_mkblas.h`, `include/gk_mkmemory.h`, `include/gk_mkpqueue.h`, `include/gk_mkpqueue2.h`, `include/gk_mkrandom.h`, `include/gk_mkutils.h` | Add `_PROTO_EX` forms with an explicit export-attribute argument. Original forms remain caller-owned and do not inherit GKlib DLL ownership. Matrix templates also release the outer pointer table after a partial row-allocation failure. |
+| `include/gk_mksort.h` | Initialize the iterative quicksort's bottom stack sentinel once before it can be popped; this adds no work to the partition loop. |
+| `include/gkregex.h`, `src/gkregex.c` | Apply export/configuration declarations, avoid redefining alloca and use pointer-sized integer casts on LLP64 systems. DFA and multibyte range growth commit each successful moving reallocation before attempting the next array. Register-pair allocation failures reset both pointers to a consistent, retryable state, backtracking-stack entries become visible only after all owned copies succeed, and constrained state construction propagates failed state allocation or owned node-set copies without registering a partial state. Preserve third-party attribution. |
+| `src/io.c` | Permit every binary reader's optional element-count output to be null and correct the parameter documentation from lines to elements. Close the input stream before reporting a short read so returning errors and signal recovery do not leak the file handle. |
+| `src/mcore.c`, local `src/memory_internal.h` | Reserve operation-stack capacity before allocating payloads or changing core state, and commit moving growth only after it succeeds. Constructors release partial objects on allocation failure. Delete, pop and destroy operations retain their signatures, signal through the configured error path and preserve the current record or caller handle when an active tracker marker rejects the release. |
+| `src/memory.c` | Use configured TLS for allocation tracking, reserve bookkeeping capacity before allocating payloads, and preserve the old tracked allocation when reallocation fails. Successful reallocations update their existing slot and cumulative statistics; internal mcore-stack growth can update the owning record across active tracker markers without relaxing the public reallocation boundary. A rejected tracked free preserves that pointer and stops the remaining variadic release list. Also correct the `gk_malloc` comment, release the outer pointer table after partial matrix allocation, and remove accepted bookkeeping before freeing storage. |
 | `src/string.c` | Make `gk_strstr_replace` copy sized fragments with `memcpy`, write escapes to the output buffer, advance and terminate global empty matches, mark suffix scans `REG_NOTBOL`, and ignore absent captures safely. |
 | `src/timers.c` | Remove a disabled OpenMP timing branch and correct wall-clock/CPU-clock comments; retain the existing platform time sources. |
 | Removed `include/gk_ms_stdint.h`, `include/gk_ms_inttypes.h` | Require modern standard integer headers instead of maintaining obsolete compiler definitions. |
@@ -176,6 +192,12 @@ Do not automatically restore intentionally removed build files.
 
 ### Unreleased
 
+- Isolate OpenMP runtime lookup from parent cache variables and require explicit
+  assertion execution evidence in negative tests.
+- Preserve toolchain inputs and the selected configuration in nested tests,
+  including Fortran-only consumers; distinguish emulator execution from
+  compile/link-only cross checks.
+
 - Require a real executable link for system regex detection, even when a parent
   uses static try-compiles; recheck when required flags or libraries change.
 
@@ -201,6 +223,29 @@ Do not automatically restore intentionally removed build files.
   opaque interface graph.
 - Add portable static/optimized IPO policies, external Intel runtime discovery,
   and compatible mixed-compiler consumption with explicit CRT boundaries.
+- Validate IPO with configuration-specific compile/link projects and reusable
+  diagnostics, including real invalid-link and AUTO recovery regressions.
+- Make feature link checks use the active configuration, selected linker and
+  strict diagnostics for ignored options while preserving parent check state.
+- Preserve Windows MSVC-ABI Clang and Intel LLVM ASan runtime closure without
+  exporting producer SDK paths or redistributing compiler runtimes, and apply
+  the string-tail-merge workaround only to relevant LLD final links.
+- Recover from transient Windows runtime-copy sharing conflicts within a bounded
+  retry budget while retaining fatal missing-input and persistent-lock errors.
+- Repair partial matrix-allocation cleanup, regular-expression DFA, multibyte
+  range, register-pair, backtracking-stack and constrained-state allocation and copy
+  ownership, quicksort sentinel initialization and allocation bookkeeping.
+  Make mcore growth and tracked allocation, reallocation and release
+  transactional under the configured allocation-error policy; add deterministic
+  regressions for marker-rejected frees, pops and destruction.
+- Accept null optional counts in binary readers and test all supported element
+  types without changing their allocated-result ownership; force short reads to
+  verify stream cleanup for returning errors and signal recovery.
+- Keep `gk_getopt` safe when the short-option string contains GNU's `W;`
+  extension without a long-option table, while retaining long-option mapping,
+  no-match and missing-argument behavior in `gk_getopt_long`.
+- Keep allocation accounting in the linked API test and reserve separate
+  failure-injection fixtures for recovery and ownership contracts.
 - Retain the platform and public-header corrections described above and add
   regression coverage for their build and consumer contracts.
 - Separate the introductory README, complete build reference and fixed-baseline

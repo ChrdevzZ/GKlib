@@ -568,7 +568,7 @@ static int gk_getopt_internal(int argc, char **argv, char *optstring,
     }
 
     /* Convenience. Treat POSIX -W foo same as long option --foo */
-    if (temp[0] == 'W' && temp[1] == ';') {
+    if (temp[0] == 'W' && temp[1] == ';' && longopts != NULL) {
       char *nameend;
       struct gk_option *p;
       struct gk_option *pfound = NULL;

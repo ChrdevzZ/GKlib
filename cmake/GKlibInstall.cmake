@@ -20,6 +20,12 @@ install(DIRECTORY "${PROJECT_SOURCE_DIR}/LICENSES/"
 # platform-specific location without changing the library/include layout.
 set(GKLIB_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/GKlib" CACHE STRING
   "Install directory for GKlib CMake package files")
+set(GKLIB_CONFIG_NEEDS_ASAN OFF)
+if(TARGET GKlib::ASanRuntime AND NOT GKLIB_BUILD_SHARED_LIBS)
+  set(GKLIB_CONFIG_NEEDS_ASAN ON)
+  windows_asan_install(GKlib "${GKLIB_INSTALL_CMAKEDIR}" GKlib_Development)
+endif()
+
 configure_package_config_file(
   "${PROJECT_SOURCE_DIR}/cmake/GKlibConfig.cmake.in"
   "${PROJECT_BINARY_DIR}/cmake/GKlibConfig.cmake"

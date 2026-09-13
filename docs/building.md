@@ -73,11 +73,20 @@ static.
 | `GKLIB_SANITIZERS` | empty | e.g. `address;undefined` |
 | `GKLIB_WARNINGS_AS_ERRORS` | `OFF` | `ON`, `OFF` |
 
+`GKLIB_WARNINGS_AS_ERRORS` promotes the selected compiler's project warnings
+to build errors. It is an opt-in diagnostic policy; retained upstream code can
+still produce deprecated-declaration warnings, including the bundled regex
+implementation's C99-compatible non-prototype definitions. Keep it off for
+ordinary dependency builds, or review those diagnostics with the selected
+compiler. Configuration success does not certify a warning-free build.
+
 `AUTO` assertions and debug instrumentation follow the active build
 configuration, including multi-config generators. Target architecture detection
 sets the default for `GKLIB_NO_X86`; enable it to disable x86-specific paths.
 Optimization, diagnostics, OpenMP, profiling, sanitizers, and assertion policy
 are attached to the GKlib target and do not modify global compiler flags.
+Thread-local storage covers both error-recovery state and the allocation tracker.
+Disabling it makes both states process-global and changes concurrency safety.
 
 With `AUTO`, ordinary static archives do not enable IPO on their own unless a
 parent project supplies an explicit CMake IPO policy. Shared Release,
@@ -97,9 +106,55 @@ CRT contract and release GKlib-owned memory with GKlib's allocation functions.
 
 Per-configuration parent IPO settings take precedence over global IPO policy.
 Without either, Debug and custom configurations do not enable IPO under AUTO.
-Capability checks are cached per project and relevant toolchain/flag signature.
+Only configurations available in the current build are checked. Each check
+configures and links a small CMake project with that configuration's compiler,
+CRT, compile/link flags and target options. Static checks link an archive into
+a caller; shared checks link a shared library. Target programs are never run.
+Required IPO failures report a diagnostic log; default shared AUTO disables
+only the configuration whose check failed. Results are cached in this build
+tree per project, configuration, link type and effective input signature. An
+unchanged reconfigure reuses the result and log. Disabled IPO needs no probe.
+This checks the selected toolchain and options, not arbitrary dependency graphs
+or another compiler's IPO object format.
+
 Native tuning is unavailable for cross-compilation or universal multi-architecture
 builds. Quote sanitizer lists, for example `-DGKLIB_SANITIZERS="address;undefined"`.
+
+Sanitizer checks require actual instrumentation and its final-link runtime.
+An ignored compiler switch is not support. Native MSVC supports AddressSanitizer
+only; clang-cl and Intel LLVM are checked separately. MSVC-style frontends do
+not implement gprof's `-pg` interface and reject `GKLIB_GPROF=ON`.
+
+Compile-and-link feature checks use an executable and the active configuration,
+including configuration-specific flags and the selected custom linker. Common
+diagnostics for ignored or unsupported options make a requested capability fail
+even when the compiler exits successfully. Each check restores its temporary
+state and caches a result only for the complete effective input signature.
+
+For Windows MSVC-ABI Clang and Intel LLVM ASan, the build records the runtime
+libraries selected by the compiler for the effective architecture and CRT.
+Static installation consumers recover those libraries through their compiler
+SDK, `CompilerRuntime_ROOT` or `CMAKE_PREFIX_PATH`; no producer SDK paths are
+exported. Use a compatible producer runtime SDK, including its DLLs. A
+completed shared library requires runtime deployment, not the static development
+SDK. Sanitized archives have
+additional runtime constraints beyond the ordinary C ABI.
+
+ASan final links using LLD disable string tail merging to avoid overlapping
+instrumented globals, following the [LLVM workaround](https://github.com/llvm/llvm-project/pull/74207).
+The link interface follows the final language and target
+linker selection, including explicit `LINKER_TYPE` overrides; ordinary
+`link.exe` links do not receive LLD-only switches. Intel Windows IPO links use
+the Intel driver and its LLD path. This workaround does not change ordinary
+unsanitized builds or make IPO archives portable between compiler toolchains.
+
+Build-tree tools and tests copy the selected ASan DLL beside their executables.
+On Windows, a bounded retry handles a short permission or sharing conflict
+during that copy; missing inputs and persistent failures remain fatal.
+Installed packages do not redistribute compiler runtimes. Deploy compatible
+ASan and other required runtime DLLs explicitly; an unrelated SDK on `PATH`
+must not be used as a substitute. Debug CRT support is checked for the actual
+compiler configuration and is not assumed from Release ASan support.
 
 For MSVC AddressSanitizer builds, prefer `RelWithDebInfo`: without debug
 information MSVC emits [C5072](https://learn.microsoft.com/en-us/cpp/error-messages/compiler-warnings/compiler-warning-c5072?view=msvc-170).
@@ -125,6 +180,11 @@ pure Fortran package consumers viable. Set `OpenMP_ROOT` or `CMAKE_PREFIX_PATH`
 to a compatible producer SDK when its runtime libraries are outside normal
 search paths. A shared GKlib has already resolved its private OpenMP link and
 requires runtime DLL deployment rather than the producer development SDK.
+
+Runtime discovery follows the consumer's active configurations and imported
+configuration mappings. An unused installed Debug configuration does not require
+its runtime SDK in a Release-only consumer; an explicit mapping still requires
+the selected producer runtime.
 
 With CMake 3.30 or newer, an MSVC producer can select the LLVM runtime through
 FindOpenMP's standard
@@ -225,13 +285,23 @@ allocation/free functions for library-owned memory. Known Intel DLL dependencies
 must be available at runtime; a linked shared library does not require the
 consumer to install Intel static development libraries.
 
-One parent build can choose compilers separately for C, C++ and Fortran. Distinct
-C producers require separate builds and installed packages. Keep each MSYS2
-producer build inside one environment. MINGW64 uses MSVCRT; UCRT64 and CLANG64
-both use UCRT, so compatible installed C-library consumption between the latter
-two is possible when architecture, calling ABI, runtime ownership and external
-dependencies match. Their libstdc++ and libc++ object interfaces differ, and
-IPO/object compatibility must be established separately. See
+A parent project can select compilers separately for languages that CMake's
+platform modules allow together. On Windows, CMake 3.24 and 4.3 reject
+mixing MSVC with Clang or another CL-compatible compiler ID across C and C++
+during language initialization; this is a CMake toolchain restriction, not a
+finding that ordinary ABI-compatible objects cannot interoperate. This project
+does not bypass that platform check. C and compatible Fortran compilers can
+still be selected independently. See the corresponding
+[CMake 3.24](https://gitlab.kitware.com/cmake/cmake/-/blob/v3.24.0/Modules/Platform/Windows-Clang.cmake#L151-166)
+and [CMake 4.3](https://gitlab.kitware.com/cmake/cmake/-/blob/v4.3.0/Modules/Platform/Windows-Clang.cmake#L180-202)
+platform checks.
+
+Distinct C producers require separate builds and installed packages. Keep each
+MSYS2 producer build inside one environment. MINGW64 uses MSVCRT; UCRT64 and
+CLANG64 both use UCRT, so compatible installed C-library consumption between
+the latter two is possible when architecture, calling ABI, runtime ownership
+and external dependencies match. Their libstdc++ and libc++ object interfaces
+differ, and IPO/object compatibility must be established separately. See
 [development checks](development.md).
 
 ### Public templates
@@ -246,6 +316,34 @@ an ambient template export macro.
 
 Python 3.9 or newer and Git are maintenance dependencies, not ordinary build
 requirements. The integration suite additionally needs an OpenMP implementation.
+
+Nested build tests inherit a bounded set of toolchain, architecture, CRT and
+compiler/linker settings through a generated initial cache. They use the active
+CTest configuration; scenarios that deliberately select another configuration
+state it explicitly. The cache does not enable additional project languages,
+including in Fortran-only installed-package consumers.
+
+Runtime tests execute native programs directly. Cross-compiled programs run
+only through `CMAKE_CROSSCOMPILING_EMULATOR`, including its argument list. Without
+an emulator, configuration, compilation and linking are still checked, while
+runtime checks are reported as skipped. A skipped run is not execution evidence,
+and earlier build failures remain failures.
+
+Windows ASan fixtures cover configuration selection, configless records, failed
+lookup and retry behavior, external SDK resolution, and LLD versus `link.exe`
+final-link selection. A separate fixture enables its C++ final-link language
+only after embedding the sanitized C library.
+
+Assertion regressions require a test-process startup marker, the expected
+assertion diagnostic and the signal handler's dedicated exit status. Unrelated
+failures, startup errors and timeouts do not demonstrate a working assertion.
+OpenMP package regressions also check that runtime discovery preserves unrelated
+parent cache entries and cannot select them as libraries. Focused source tests
+cover nullable binary-reader counts, partial matrix-allocation cleanup, moving
+regular-expression reallocations, failed backtracking-stack pushes and failed
+constrained-state node-set copies, the iterative quicksort sentinel and
+transactional allocation bookkeeping, including marker-rejected reallocations,
+frees and mcore cleanup.
 
 ```sh
 cmake -S . -B build/developer -G Ninja -DCMAKE_BUILD_TYPE=Release -DGKLIB_BUILD_DEVELOPER_TESTING=ON -DGKLIB_BUILD_INTEGRATION_TESTING=ON

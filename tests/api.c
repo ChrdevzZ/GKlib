@@ -51,6 +51,72 @@ static int check_replacement(void)
 }
 
 
+static int check_getopt_w(void)
+{
+  struct gk_option long_options[] = {
+    {(char *)"value", no_argument, NULL, 'v'},
+    {NULL, 0, NULL, 0}
+  };
+  char *short_argv[] = {
+    (char *)"gklib-api-test", (char *)"-W", (char *)"value", NULL
+  };
+  char *long_argv[] = {
+    (char *)"gklib-api-test", (char *)"-W", (char *)"value", NULL
+  };
+  char *unknown_argv[] = {
+    (char *)"gklib-api-test", (char *)"-W", (char *)"unknown", NULL
+  };
+  char *missing_argv[] = {
+    (char *)"gklib-api-test", (char *)"-W", NULL
+  };
+
+  gk_opterr = 0;
+  gk_optind = 0;
+  if (gk_getopt(3, short_argv, (char *)"W;") != 'W' ||
+      gk_optarg != NULL)
+    return 0;
+
+  gk_optind = 0;
+  if (gk_getopt_long(3, long_argv, (char *)"W;", long_options, NULL) != 'v' ||
+      gk_optarg == NULL || strcmp(gk_optarg, "value") != 0)
+    return 0;
+
+  gk_optind = 0;
+  if (gk_getopt_long(3, unknown_argv, (char *)"W;", long_options, NULL) != 'W' ||
+      gk_optarg == NULL || strcmp(gk_optarg, "unknown") != 0)
+    return 0;
+
+  gk_optind = 0;
+  gk_optopt = 0;
+  if (gk_getopt_long(2, missing_argv, (char *)"W;", long_options, NULL) != '?' ||
+      gk_optopt != 'W')
+    return 0;
+
+  return 1;
+}
+
+
+static int check_memory_tracking(void)
+{
+  void *first;
+  void *second;
+  int valid;
+
+  if (!gk_malloc_init())
+    return 0;
+
+  first = gk_malloc(31, (char *)"first tracked allocation");
+  second = gk_malloc(47, (char *)"second tracked allocation");
+  valid = first != NULL && second != NULL && gk_GetCurMemoryUsed() == 78;
+  gk_free(&first, &second, LTERM);
+  valid = valid && first == NULL && second == NULL &&
+          gk_GetCurMemoryUsed() == 0;
+  gk_malloc_cleanup(0);
+
+  return valid;
+}
+
+
 int main(void)
 {
   int *values;
@@ -63,6 +129,9 @@ int main(void)
   char *argv[] = {(char *)"gklib-api-test", (char *)"-n", (char *)"7", NULL};
   jmp_buf *jump_buffers;
   jmp_buf *jump_buffer;
+
+  if (!check_memory_tracking())
+    return 16;
 
   values = gk_imalloc(3, (char *)"gklib-api-test");
   values[0] = 3;
@@ -127,11 +196,13 @@ int main(void)
     return 11;
   if (gk_optarg == NULL || gk_optarg[0] != '7')
     return 12;
+  if (!check_getopt_w())
+    return 13;
 
   gk_cur_jbufs = -1;
   jump_buffers = gk_jbufs;
   jump_buffer = &gk_jbuf;
   if (jump_buffers == NULL || jump_buffer == NULL)
-    return 13;
-  return gk_cur_jbufs == -1 ? 0 : 14;
+    return 14;
+  return gk_cur_jbufs == -1 ? 0 : 15;
 }

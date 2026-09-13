@@ -21,9 +21,17 @@ foreach(prog ${GKLIB_PROGRAMS})
 
   # Make build-tree programs runnable beside shared GKlib dependencies.
   if(WIN32)
+    set(runtime_dlls "$<TARGET_RUNTIME_DLLS:${prog}>")
+    if(TARGET GKlib::ASanRuntime)
+      string(APPEND runtime_dlls
+        ";$<GENEX_EVAL:$<TARGET_PROPERTY:GKlib::ASanRuntime,_ASAN_DLLS>>")
+    endif()
+    if(_gklib_native_asan_runtime_dll)
+      string(APPEND runtime_dlls ";${_gklib_native_asan_runtime_dll}")
+    endif()
     add_custom_command(TARGET ${prog} POST_BUILD
       COMMAND ${CMAKE_COMMAND}
-        "-DLIBRARIES=$<TARGET_RUNTIME_DLLS:${prog}>"
+        "-DLIBRARIES=${runtime_dlls}"
         "-DDESTINATION=$<TARGET_FILE_DIR:${prog}>"
         -P "${PROJECT_SOURCE_DIR}/cmake/CopyRuntime.cmake"
       VERBATIM)

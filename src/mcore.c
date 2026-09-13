@@ -9,6 +9,67 @@
 */
 
 #include <GKlib.h>
+#include "memory_internal.h"
+
+
+static int gk_mcoreEnsureCapacity(gk_mcore_t *mcore)
+{
+  gk_mop_t *mops;
+  size_t nmops;
+
+  if (mcore->cmop < mcore->nmops)
+    return 1;
+
+  if (mcore->nmops > SIZE_MAX/2) {
+    gk_errexit(SIGMEM, "***Memory allocation for mcore failed.\n");
+    return 0;
+  }
+  nmops = (mcore->nmops == 0 ? 2048 : 2*mcore->nmops);
+  if (nmops > SIZE_MAX/sizeof(gk_mop_t)) {
+    gk_errexit(SIGMEM, "***Memory allocation for mcore failed.\n");
+    return 0;
+  }
+
+  mops = (gk_mop_t *)gk_realloc_mcore(mcore->mops, nmops*sizeof(gk_mop_t),
+      "gk_mcoreEnsureCapacity: mcore->mops");
+  if (mops == NULL)
+    return 0;
+
+  mcore->mops = mops;
+  mcore->nmops = nmops;
+  return 1;
+}
+
+
+static void gk_mcoreAddReserved(gk_mcore_t *mcore, int type,
+    size_t nbytes, void *ptr)
+{
+  mcore->mops[mcore->cmop].type   = type;
+  mcore->mops[mcore->cmop].nbytes = nbytes;
+  mcore->mops[mcore->cmop].ptr    = ptr;
+  mcore->cmop++;
+
+  switch (type) {
+    case GK_MOPT_MARK:
+      break;
+
+    case GK_MOPT_CORE:
+      mcore->num_callocs++;
+      mcore->size_callocs += nbytes;
+      mcore->cur_callocs  += nbytes;
+      if (mcore->max_callocs < mcore->cur_callocs)
+        mcore->max_callocs = mcore->cur_callocs;
+      break;
+
+    case GK_MOPT_HEAP:
+      mcore->num_hallocs++;
+      mcore->size_hallocs += nbytes;
+      mcore->cur_hallocs  += nbytes;
+      if (mcore->max_hallocs < mcore->cur_hallocs)
+        mcore->max_hallocs = mcore->cur_hallocs;
+      break;
+  }
+}
 
 
 /*************************************************************************/
@@ -20,17 +81,27 @@ gk_mcore_t *gk_mcoreCreate(size_t coresize)
   gk_mcore_t *mcore;
 
   mcore = (gk_mcore_t *)gk_malloc(sizeof(gk_mcore_t), "gk_mcoreCreate: mcore");
+  if (mcore == NULL)
+    return NULL;
   memset(mcore, 0, sizeof(gk_mcore_t));
 
   mcore->coresize = coresize;
   mcore->corecpos = 0;
 
   mcore->core = (coresize == 0 ? NULL : gk_malloc(mcore->coresize, "gk_mcoreCreate: core"));
+  if (coresize != 0 && mcore->core == NULL) {
+    gk_free((void **)&mcore, LTERM);
+    return NULL;
+  }
 
   /* allocate the memory for keeping track of malloc ops */
   mcore->nmops = 2048;
   mcore->cmop  = 0;
   mcore->mops  = (gk_mop_t *)gk_malloc(mcore->nmops*sizeof(gk_mop_t), "gk_mcoreCreate: mcore->mops");
+  if (mcore->mops == NULL) {
+    gk_free((void **)&mcore->core, &mcore, LTERM);
+    return NULL;
+  }
 
   return mcore;
 }
@@ -92,7 +163,7 @@ void gk_mcoreDestroy(gk_mcore_t **r_mcore, int showstats)
 
   gk_free((void **)&mcore->core, &mcore->mops, &mcore, LTERM);
 
-  *r_mcore = NULL;
+  *r_mcore = mcore;
 }
 
 
@@ -144,18 +215,23 @@ void *gk_mcoreMalloc(gk_mcore_t *mcore, size_t nbytes)
   /* pad to make pointers 8-byte aligned */
   nbytes += (nbytes%8 == 0 ? 0 : 8 - nbytes%8);
 
+  if (!gk_mcoreEnsureCapacity(mcore))
+    return NULL;
+
   if (mcore->corecpos + nbytes < mcore->coresize) {
     /* service this request from the core */
     ptr = ((char *)mcore->core)+mcore->corecpos;
     mcore->corecpos += nbytes;
 
-    gk_mcoreAdd(mcore, GK_MOPT_CORE, nbytes, ptr);
+    gk_mcoreAddReserved(mcore, GK_MOPT_CORE, nbytes, ptr);
   }
   else {
     /* service this request from the heap */
     ptr = gk_malloc(nbytes, "gk_mcoremalloc: ptr");
+    if (ptr == NULL)
+      return NULL;
 
-    gk_mcoreAdd(mcore, GK_MOPT_HEAP, nbytes, ptr);
+    gk_mcoreAddReserved(mcore, GK_MOPT_HEAP, nbytes, ptr);
   }
 
   /*
@@ -198,28 +274,37 @@ void gk_gkmcorePush(gk_mcore_t *mcore)
 void gk_mcorePop(gk_mcore_t *mcore)
 {
   while (mcore->cmop > 0) {
-    mcore->cmop--;
-    switch (mcore->mops[mcore->cmop].type) {
+    size_t mop = mcore->cmop-1;
+
+    switch (mcore->mops[mop].type) {
       case GK_MOPT_MARK: /* push marker */
+        mcore->cmop--;
         goto DONE;
         break; 
 
       case GK_MOPT_CORE: /* core free */
-        if (mcore->corecpos < mcore->mops[mcore->cmop].nbytes)
+        if (mcore->corecpos < mcore->mops[mop].nbytes) {
           errexit("Internal Error: wspace's core is about to be over-freed [%zu, %zu, %zd]\n",
-              mcore->coresize, mcore->corecpos, mcore->mops[mcore->cmop].nbytes);
+              mcore->coresize, mcore->corecpos, mcore->mops[mop].nbytes);
+          return;
+        }
 
-        mcore->corecpos    -= mcore->mops[mcore->cmop].nbytes;
-        mcore->cur_callocs -= mcore->mops[mcore->cmop].nbytes;
+        mcore->corecpos    -= mcore->mops[mop].nbytes;
+        mcore->cur_callocs -= mcore->mops[mop].nbytes;
+        mcore->cmop--;
         break;
 
       case GK_MOPT_HEAP: /* heap free */
-        gk_free((void **)&mcore->mops[mcore->cmop].ptr, LTERM);
-        mcore->cur_hallocs -= mcore->mops[mcore->cmop].nbytes;
+        gk_free((void **)&mcore->mops[mop].ptr, LTERM);
+        if (mcore->mops[mop].ptr != NULL)
+          return;
+        mcore->cur_hallocs -= mcore->mops[mop].nbytes;
+        mcore->cmop--;
         break;
 
       default:
-        gk_errexit(SIGMEM, "Unknown mop type of %d\n", mcore->mops[mcore->cmop].type);
+        gk_errexit(SIGMEM, "Unknown mop type of %d\n", mcore->mops[mop].type);
+        return;
     }
   }
 
@@ -264,40 +349,15 @@ DONE:
 /*************************************************************************/
 void gk_mcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr)
 {
-  if (mcore->cmop == mcore->nmops) {
-    mcore->nmops *= 2;
-    mcore->mops = realloc(mcore->mops, mcore->nmops*sizeof(gk_mop_t));
-    if (mcore->mops == NULL) 
-      gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.\n");
+  if (type != GK_MOPT_MARK && type != GK_MOPT_CORE && type != GK_MOPT_HEAP) {
+    gk_errexit(SIGMEM, "Incorrect mcore type operation.\n");
+    return;
   }
 
-  mcore->mops[mcore->cmop].type   = type;
-  mcore->mops[mcore->cmop].nbytes = nbytes;
-  mcore->mops[mcore->cmop].ptr    = ptr;
-  mcore->cmop++;
+  if (!gk_mcoreEnsureCapacity(mcore))
+    return;
 
-  switch (type) {
-    case GK_MOPT_MARK:
-      break;
-
-    case GK_MOPT_CORE:
-      mcore->num_callocs++;
-      mcore->size_callocs += nbytes;
-      mcore->cur_callocs  += nbytes;
-      if (mcore->max_callocs < mcore->cur_callocs)
-        mcore->max_callocs = mcore->cur_callocs;
-      break;
-
-    case GK_MOPT_HEAP:
-      mcore->num_hallocs++;
-      mcore->size_hallocs += nbytes;
-      mcore->cur_hallocs  += nbytes;
-      if (mcore->max_hallocs < mcore->cur_hallocs)
-        mcore->max_hallocs = mcore->cur_hallocs;
-      break;
-    default:
-      gk_errexit(SIGMEM, "Incorrect mcore type operation.\n");
-  }
+  gk_mcoreAddReserved(mcore, type, nbytes, ptr);
 }
 
 
@@ -308,38 +368,24 @@ void gk_mcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr)
 /*************************************************************************/
 void gk_gkmcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr)
 {
-  if (mcore->cmop == mcore->nmops) {
-    mcore->nmops *= 2;
-    mcore->mops = realloc(mcore->mops, mcore->nmops*sizeof(gk_mop_t));
-    if (mcore->mops == NULL) 
-      gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.\n");
+  if (type != GK_MOPT_MARK && type != GK_MOPT_HEAP) {
+    gk_errexit(SIGMEM, "Incorrect mcore type operation.\n");
+    return;
   }
 
-  mcore->mops[mcore->cmop].type   = type;
-  mcore->mops[mcore->cmop].nbytes = nbytes;
-  mcore->mops[mcore->cmop].ptr    = ptr;
-  mcore->cmop++;
-
-  switch (type) {
-    case GK_MOPT_MARK:
-      break;
-
-    case GK_MOPT_HEAP:
-      mcore->num_hallocs++;
-      mcore->size_hallocs += nbytes;
-      mcore->cur_hallocs  += nbytes;
-      if (mcore->max_hallocs < mcore->cur_hallocs)
-        mcore->max_hallocs = mcore->cur_hallocs;
-      break;
-    default:
-      gk_errexit(SIGMEM, "Incorrect mcore type operation.\n");
+  if (!gk_gkmcoreEnsureCapacity(mcore)) {
+    gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.\n");
+    return;
   }
+
+  gk_gkmcoreAddReserved(mcore, type, nbytes, ptr);
 }
 
 
 /*************************************************************************/
 /*! This function deletes the mop associated with the supplied pointer.
-    The mop has to be a heap allocation, otherwise it fails violently.
+    The mop must be a heap allocation in the active frame. Invalid deletions
+    report SIGMEM and leave the mcore unchanged.
  */
 /*************************************************************************/
 void gk_mcoreDel(gk_mcore_t *mcore, void *ptr)
@@ -347,12 +393,16 @@ void gk_mcoreDel(gk_mcore_t *mcore, void *ptr)
   int i;
 
   for (i=mcore->cmop-1; i>=0; i--) {
-    if (mcore->mops[i].type == GK_MOPT_MARK)
+    if (mcore->mops[i].type == GK_MOPT_MARK) {
       gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
+      return;
+    }
 
     if (mcore->mops[i].ptr == ptr) {
-      if (mcore->mops[i].type != GK_MOPT_HEAP)
+      if (mcore->mops[i].type != GK_MOPT_HEAP) {
         gk_errexit(SIGMEM, "Trying to delete a non-HEAP mop.\n");
+        return;
+      }
 
       mcore->cur_hallocs -= mcore->mops[i].nbytes;
       mcore->mops[i] = mcore->mops[--mcore->cmop];
@@ -366,7 +416,8 @@ void gk_mcoreDel(gk_mcore_t *mcore, void *ptr)
 
 /*************************************************************************/
 /*! This function deletes the mop associated with the supplied pointer.
-    The mop has to be a heap allocation, otherwise it fails violently.
+    The mop must be a heap allocation in the active frame. Invalid deletions
+    report SIGMEM and leave the mcore unchanged.
     This is the gkmcore version.
  */
 /*************************************************************************/
@@ -375,12 +426,16 @@ void gk_gkmcoreDel(gk_mcore_t *mcore, void *ptr)
   int i;
 
   for (i=mcore->cmop-1; i>=0; i--) {
-    if (mcore->mops[i].type == GK_MOPT_MARK)
+    if (mcore->mops[i].type == GK_MOPT_MARK) {
       gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
+      return;
+    }
 
     if (mcore->mops[i].ptr == ptr) {
-      if (mcore->mops[i].type != GK_MOPT_HEAP)
+      if (mcore->mops[i].type != GK_MOPT_HEAP) {
         gk_errexit(SIGMEM, "Trying to delete a non-HEAP mop.\n");
+        return;
+      }
 
       mcore->cur_hallocs -= mcore->mops[i].nbytes;
       mcore->mops[i] = mcore->mops[--mcore->cmop];

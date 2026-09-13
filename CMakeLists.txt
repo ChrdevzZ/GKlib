@@ -83,10 +83,10 @@ option(GKLIB_USE_GKRAND "Enable the alternative GKlib random generator" OFF)
 option(GKLIB_NO_X86
   "Disable x86-specific implementation paths" ${_gklib_no_x86_default})
 
-# Keep error-recovery state per thread when supported by the compiler.
-# Disabling TLS uses process-global state and changes concurrency guarantees.
+# Keep error-recovery and allocation-tracking state per thread when supported.
+# Disabling TLS makes both states process-global and changes concurrency safety.
 option(GKLIB_THREAD_LOCAL_STORAGE
-  "Use compiler thread-local storage for error state" ON)
+  "Use compiler thread-local storage for error and allocation state" ON)
 
 # Treat warnings from this project as errors without changing parent targets.
 # Keep OFF for consumers using compilers with different warning diagnostics.
@@ -143,6 +143,25 @@ option(GKLIB_BUILD_INTEGRATION_TESTING
   "Run GKlib package, policy, and install integration regressions" OFF)
 
 
+# Native MSVC keeps its ASan runtime beside the selected target compiler.
+# Record an unambiguous existing file for build-tree programs and tests only;
+# the path is neither installed nor exported as a package requirement.
+set(_gklib_native_asan_runtime_dll "")
+if(WIN32 AND CMAKE_C_COMPILER_ID STREQUAL "MSVC" AND
+    "address" IN_LIST GKLIB_SANITIZERS)
+  get_filename_component(_gklib_compiler_directory
+    "${CMAKE_C_COMPILER}" DIRECTORY)
+  file(GLOB _gklib_native_asan_runtime_candidates LIST_DIRECTORIES FALSE
+    "${_gklib_compiler_directory}/clang_rt.asan_dynamic-*.dll")
+  list(LENGTH _gklib_native_asan_runtime_candidates
+    _gklib_native_asan_runtime_count)
+  if(_gklib_native_asan_runtime_count EQUAL 1)
+    list(GET _gklib_native_asan_runtime_candidates 0
+      _gklib_native_asan_runtime_dll)
+  endif()
+endif()
+
+
 #-------------------------------------------------------------------------------
 # PLATFORM CAPABILITIES
 #-------------------------------------------------------------------------------
@@ -195,7 +214,7 @@ cmake_pop_check_state()
 check_include_file(regex.h HAVE_REGEX_H)
 
 #-------------------------------------------------------------------------------
-# THREAD-LOCAL ERROR STATE
+# THREAD-LOCAL LIBRARY STATE
 #-------------------------------------------------------------------------------
 set(GKLIB_THREAD_LOCAL "")
 if(GKLIB_THREAD_LOCAL_STORAGE)
@@ -209,7 +228,7 @@ if(GKLIB_THREAD_LOCAL_STORAGE)
     GKLIB_HAVE_THREAD_LOCAL)
   if(NOT GKLIB_HAVE_THREAD_LOCAL)
     message(FATAL_ERROR
-      "GKLIB_THREAD_LOCAL_STORAGE=ON, but the compiler has no supported TLS keyword; configure with GKLIB_THREAD_LOCAL_STORAGE=OFF to use process-global error state")
+      "GKLIB_THREAD_LOCAL_STORAGE=ON, but the compiler has no supported TLS keyword; configure with GKLIB_THREAD_LOCAL_STORAGE=OFF to use process-global error and allocation state")
   endif()
   set(GKLIB_THREAD_LOCAL "${_gklib_tls_candidate}")
 endif()

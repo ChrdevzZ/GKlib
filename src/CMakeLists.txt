@@ -39,6 +39,7 @@ target_sources(GKlib PRIVATE
   itemsets.c
   mcore.c
   memory.c
+  memory_internal.h
   pqueue.c
   random.c
   rw.c
@@ -64,7 +65,8 @@ else()
 endif()
 
 if(MINGW)
-  target_link_options(GKlib PRIVATE -Wl,--export-all-symbols)
+  target_link_options(GKlib PRIVATE
+    -Wl,--export-all-symbols,--exclude-symbols,gk_realloc_mcore)
 endif()
 
 #-------------------------------------------------------------------------------
@@ -151,6 +153,13 @@ if(GKLIB_NATIVE_OPTIMIZATION)
 endif()
 
 if(GKLIB_GPROF)
+  # MSVC-style drivers may ignore -pg with a warning. Reject that unsupported
+  # interface before a successful but uninstrumented executable can pass.
+  if(CMAKE_C_COMPILER_ID STREQUAL "MSVC" OR
+      CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    message(FATAL_ERROR
+      "GKLIB_GPROF requires a driver supporting -pg; the MSVC frontend does not")
+  endif()
   cmake_push_check_state(RESET)
   set(CMAKE_REQUIRED_FLAGS "-pg")
   set(CMAKE_REQUIRED_LINK_OPTIONS "-pg")
@@ -173,14 +182,16 @@ if(GKLIB_SANITIZERS)
   endforeach()
   list(REMOVE_DUPLICATES _gklib_sanitizer_list)
   list(JOIN _gklib_sanitizer_list "," _gklib_sanitizers)
-  if(MSVC)
+  if(CMAKE_C_COMPILER_ID STREQUAL "MSVC")
     if("undefined" IN_LIST _gklib_sanitizer_list)
       message(FATAL_ERROR
-        "The MSVC-compatible driver supports only GKLIB_SANITIZERS=address")
+        "The MSVC compiler supports only GKLIB_SANITIZERS=address")
     endif()
     set(_gklib_sanitizer_flag "/fsanitize=address")
-  elseif(CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+    set(_gklib_sanitizer_link_flag "LINKER:/INFERASANLIBS")
+  elseif(CMAKE_C_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang|IntelLLVM)$")
     set(_gklib_sanitizer_flag "-fsanitize=${_gklib_sanitizers}")
+    set(_gklib_sanitizer_link_flag "${_gklib_sanitizer_flag}")
   else()
     message(FATAL_ERROR
       "GKLIB_SANITIZERS requires a GCC-, Clang-, or MSVC-compatible driver")
@@ -189,14 +200,39 @@ if(GKLIB_SANITIZERS)
   string(MAKE_C_IDENTIFIER "${_gklib_sanitizers}" _gklib_sanitizer_id)
   set(_gklib_sanitizer_check
     "GKLIB_HAVE_SANITIZER_RUNTIME_${_gklib_sanitizer_id}")
+  set(_gklib_sanitizer_runtime "")
+  if(WIN32 AND CMAKE_C_SIMULATE_ID STREQUAL "MSVC" AND
+      CMAKE_C_COMPILER_ID MATCHES "Clang|IntelLLVM")
+    # MSVC-ABI Clang-family objects need the producer's ASan libraries even
+    # when CMake bypasses the compiler driver for the final link.
+    set(_gklib_sanitizer_link_flag "")
+    if("address" IN_LIST _gklib_sanitizer_list)
+      include("${PROJECT_SOURCE_DIR}/cmake/WindowsASan.cmake")
+      windows_asan_attach(GKlib GKlib gklib_check_link)
+      set(_gklib_sanitizer_runtime GKlib::ASanRuntime)
+    endif()
+  endif()
   cmake_push_check_state(RESET)
   set(CMAKE_REQUIRED_FLAGS "${_gklib_sanitizer_flag}")
-  if(NOT MSVC)
-    set(CMAKE_REQUIRED_LINK_OPTIONS "${_gklib_sanitizer_flag}")
+  set(CMAKE_REQUIRED_LINK_OPTIONS "${_gklib_sanitizer_link_flag}")
+  set(CMAKE_REQUIRED_LIBRARIES "${_gklib_sanitizer_runtime}")
+
+  # Do not confuse a silently ignored switch with usable instrumentation.
+  # Memory/arithmetic operations additionally require the final-link runtime.
+  set(_gklib_sanitizer_preamble
+    "#ifndef __has_feature\n#define __has_feature(x) 0\n#endif\n")
+  if("address" IN_LIST _gklib_sanitizer_list)
+    string(APPEND _gklib_sanitizer_preamble
+      "#if !defined(__SANITIZE_ADDRESS__) && !__has_feature(address_sanitizer)\n#error AddressSanitizer instrumentation is not enabled\n#endif\n")
+  endif()
+  if("undefined" IN_LIST _gklib_sanitizer_list AND
+      CMAKE_C_COMPILER_ID MATCHES "Clang|IntelLLVM")
+    string(APPEND _gklib_sanitizer_preamble
+      "#if !__has_feature(undefined_behavior_sanitizer)\n#error UndefinedBehaviorSanitizer instrumentation is not enabled\n#endif\n")
   endif()
 
   gklib_check_link(
-    "int main(int argc, char **argv) { volatile int values[2] = {0, 1}; int index = argc * argc; (void)argv; return values[index]; }"
+    "${_gklib_sanitizer_preamble}int main(int argc, char **argv) { volatile int values[2] = {0, 1}; int index = argc * argc; (void)argv; return values[index]; }"
     ${_gklib_sanitizer_check})
   cmake_pop_check_state()
   if(NOT ${_gklib_sanitizer_check})
@@ -204,11 +240,19 @@ if(GKLIB_SANITIZERS)
       "The compiler and linker do not support GKLIB_SANITIZERS=${GKLIB_SANITIZERS}")
   endif()
 
-  if(MSVC)
-    target_compile_options(GKlib PRIVATE "${_gklib_sanitizer_flag}")
-  else()
-    target_compile_options(GKlib PRIVATE "${_gklib_sanitizer_flag}" -fno-omit-frame-pointer)
-    target_link_options(GKlib PUBLIC "${_gklib_sanitizer_flag}")
+  target_compile_options(GKlib PRIVATE "${_gklib_sanitizer_flag}")
+  if(NOT MSVC AND NOT CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+    target_compile_options(GKlib PRIVATE -fno-omit-frame-pointer)
+  endif()
+  # Consumers of static objects need the runtime selected by the producer.
+  if(_gklib_sanitizer_link_flag)
+    # Native MSVC resolves ASan imports in the DLL's own link. Do not force
+    # its development-library inference onto an ordinary DLL consumer.
+    if(CMAKE_C_COMPILER_ID STREQUAL "MSVC" AND GKLIB_BUILD_SHARED_LIBS)
+      target_link_options(GKlib PRIVATE "${_gklib_sanitizer_link_flag}")
+    else()
+      target_link_options(GKlib PUBLIC "${_gklib_sanitizer_link_flag}")
+    endif()
   endif()
 endif()
 

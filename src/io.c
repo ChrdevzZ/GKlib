@@ -287,7 +287,7 @@ ssize_t *gk_zreadfile(char *fname, size_t *r_nlines)
 /*! This function reads the contents of a binary file and returns it in the
     form of an array of char.
     \param fname is the name of the file
-    \param r_nlines is the number of lines in the file. If it is NULL,
+    \param r_nelmnts is the number of elements in the file. If it is NULL,
            this information is not returned.
 */
 /*************************************************************************/
@@ -298,7 +298,8 @@ char *gk_creadfilebin(char *fname, size_t *r_nelmnts)
   char *array=NULL;
   FILE *fpin;
 
-  *r_nelmnts = 0;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = 0;
 
   fsize = gk_getfsize(fname);
 
@@ -312,13 +313,15 @@ char *gk_creadfilebin(char *fname, size_t *r_nelmnts)
 
   fpin = gk_fopen(fname, "rb", "gk_creadfilebin");
   if (fread(array, sizeof(char), nelmnts, fpin) != nelmnts) {
+    gk_fclose(fpin);
     gk_errexit(SIGERR, "Failed to read the number of words requested. %zu\n", nelmnts);
     gk_free((void **)&array, LTERM);
     return NULL;
   }
   gk_fclose(fpin);
 
-  *r_nelmnts = nelmnts;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = nelmnts;
 
   return array;
 }
@@ -348,7 +351,7 @@ size_t gk_cwritefilebin(char *fname, size_t n, char *a)
 /*! This function reads the contents of a binary file and returns it in the
     form of an array of int32_t.
     \param fname is the name of the file
-    \param r_nlines is the number of lines in the file. If it is NULL,
+    \param r_nelmnts is the number of elements in the file. If it is NULL,
            this information is not returned.
 */
 /*************************************************************************/
@@ -359,7 +362,8 @@ int32_t *gk_i32readfilebin(char *fname, size_t *r_nelmnts)
   int32_t *array=NULL;
   FILE *fpin;
 
-  *r_nelmnts = 0;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = 0;
 
   fsize = gk_getfsize(fname);
 
@@ -379,13 +383,15 @@ int32_t *gk_i32readfilebin(char *fname, size_t *r_nelmnts)
   fpin = gk_fopen(fname, "rb", "gk_i32readfilebin");
   
   if (fread(array, sizeof(int32_t), nelmnts, fpin) != nelmnts) {
+    gk_fclose(fpin);
     gk_errexit(SIGERR, "Failed to read the number of words requested. %zd\n", nelmnts);
     gk_free((void **)&array, LTERM);
     return NULL;
   }
   gk_fclose(fpin);
 
-  *r_nelmnts = nelmnts;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = nelmnts;
 
   return array;
 }
@@ -415,7 +421,7 @@ size_t gk_i32writefilebin(char *fname, size_t n, int32_t *a)
 /*! This function reads the contents of a binary file and returns it in the
     form of an array of int64_t.
     \param fname is the name of the file
-    \param r_nlines is the number of lines in the file. If it is NULL,
+    \param r_nelmnts is the number of elements in the file. If it is NULL,
            this information is not returned.
 */
 /*************************************************************************/
@@ -426,7 +432,8 @@ int64_t *gk_i64readfilebin(char *fname, size_t *r_nelmnts)
   int64_t *array=NULL;
   FILE *fpin;
 
-  *r_nelmnts = 0;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = 0;
 
   fsize = gk_getfsize(fname);
 
@@ -446,13 +453,15 @@ int64_t *gk_i64readfilebin(char *fname, size_t *r_nelmnts)
   fpin = gk_fopen(fname, "rb", "gk_i64readfilebin");
   
   if (fread(array, sizeof(int64_t), nelmnts, fpin) != nelmnts) {
+    gk_fclose(fpin);
     gk_errexit(SIGERR, "Failed to read the number of words requested. %zd\n", nelmnts);
     gk_free((void **)&array, LTERM);
     return NULL;
   }
   gk_fclose(fpin);
 
-  *r_nelmnts = nelmnts;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = nelmnts;
 
   return array;
 }
@@ -482,7 +491,7 @@ size_t gk_i64writefilebin(char *fname, size_t n, int64_t *a)
 /*! This function reads the contents of a binary file and returns it in the
     form of an array of ssize_t.
     \param fname is the name of the file
-    \param r_nlines is the number of lines in the file. If it is NULL,
+    \param r_nelmnts is the number of elements in the file. If it is NULL,
            this information is not returned.
 */
 /*************************************************************************/
@@ -493,7 +502,8 @@ ssize_t *gk_zreadfilebin(char *fname, size_t *r_nelmnts)
   ssize_t *array=NULL;
   FILE *fpin;
 
-  *r_nelmnts = 0;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = 0;
 
   fsize = gk_getfsize(fname);
 
@@ -513,13 +523,15 @@ ssize_t *gk_zreadfilebin(char *fname, size_t *r_nelmnts)
   fpin = gk_fopen(fname, "rb", "gk_zreadfilebin");
   
   if (fread(array, sizeof(ssize_t), nelmnts, fpin) != nelmnts) {
+    gk_fclose(fpin);
     gk_errexit(SIGERR, "Failed to read the number of words requested. %zd\n", nelmnts);
     gk_free((void **)&array, LTERM);
     return NULL;
   }
   gk_fclose(fpin);
 
-  *r_nelmnts = nelmnts;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = nelmnts;
 
   return array;
 }
@@ -549,7 +561,7 @@ size_t gk_zwritefilebin(char *fname, size_t n, ssize_t *a)
 /*! This function reads the contents of a binary file and returns it in the
     form of an array of float.
     \param fname is the name of the file
-    \param r_nlines is the number of lines in the file. If it is NULL,
+    \param r_nelmnts is the number of elements in the file. If it is NULL,
            this information is not returned.
 */
 /*************************************************************************/
@@ -560,7 +572,8 @@ float *gk_freadfilebin(char *fname, size_t *r_nelmnts)
   float *array=NULL;
   FILE *fpin;
 
-  *r_nelmnts = 0;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = 0;
 
   fsize = gk_getfsize(fname);
 
@@ -580,13 +593,15 @@ float *gk_freadfilebin(char *fname, size_t *r_nelmnts)
   fpin = gk_fopen(fname, "rb", "gk_freadfilebin");
   
   if (fread(array, sizeof(float), nelmnts, fpin) != nelmnts) {
+    gk_fclose(fpin);
     gk_errexit(SIGERR, "Failed to read the number of words requested. %zd\n", nelmnts);
     gk_free((void **)&array, LTERM);
     return NULL;
   }
   gk_fclose(fpin);
 
-  *r_nelmnts = nelmnts;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = nelmnts;
 
   return array;
 }
@@ -616,7 +631,7 @@ size_t gk_fwritefilebin(char *fname, size_t n, float *a)
 /*! This function reads the contents of a binary file and returns it in the
     form of an array of double.
     \param fname is the name of the file
-    \param r_nlines is the number of lines in the file. If it is NULL,
+    \param r_nelmnts is the number of elements in the file. If it is NULL,
            this information is not returned.
 */
 /*************************************************************************/
@@ -627,7 +642,8 @@ double *gk_dreadfilebin(char *fname, size_t *r_nelmnts)
   double *array=NULL;
   FILE *fpin;
 
-  *r_nelmnts = 0;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = 0;
 
   fsize = gk_getfsize(fname);
 
@@ -647,13 +663,15 @@ double *gk_dreadfilebin(char *fname, size_t *r_nelmnts)
   fpin = gk_fopen(fname, "rb", "gk_dreadfilebin");
   
   if (fread(array, sizeof(double), nelmnts, fpin) != nelmnts) {
+    gk_fclose(fpin);
     gk_errexit(SIGERR, "Failed to read the number of words requested. %zd\n", nelmnts);
     gk_free((void **)&array, LTERM);
     return NULL;
   }
   gk_fclose(fpin);
 
-  *r_nelmnts = nelmnts;
+  if (r_nelmnts != NULL)
+    *r_nelmnts = nelmnts;
 
   return array;
 }

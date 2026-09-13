@@ -85,6 +85,7 @@ TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, char *errmsg)
     if (matrix[i] == NULL) { \
       for (j=0; j<i; j++) \
         gk_free((void **)&matrix[j], LTERM); \
+      gk_free((void **)&matrix, LTERM); \
       return NULL; \
     } \
   }\

@@ -31,18 +31,20 @@ option) any later version"). Full text: [`LICENSES/LGPL-2.1.txt`](LICENSES/LGPL-
 | `src/getopt.c`        | glibc `getopt` | Free Software Foundation, Inc. |
 | `src/gkregex.c`       | glibc regex implementation (Isamu Hasegawa) | Free Software Foundation, Inc. |
 
-Note: `src/gkregex.c` is only compiled when the platform lacks a system
-`<regex.h>` (CMake sets `USE_GKREGEX`); `include/gkregex.h` is its companion
-header. The sort templates in `include/gk_mksort.h` and `src/getopt.c` are
-always built.
+Note: the bundled regex implementation in `src/gkregex.c` is enabled when
+`GKLIB_REGEX_BACKEND=GKREGEX`, either by explicit selection or because `AUTO`
+cannot compile and link the system POSIX regex API. CMake then defines
+`USE_GKREGEX`; `include/gkregex.h` is the bundled implementation's companion
+header. The source file remains in the library source list, and the sort
+templates in `include/gk_mksort.h` and `src/getopt.c` are always built.
 
 ## BSD-3-Clause (Mersenne Twister)
 
 `src/random.c` contains the MT19937-64 generator by Makoto Matsumoto and Takuji
 Nishimura (Copyright (C) 2004), distributed under the 3-clause BSD license. This
-code is compiled **only** when GKlib is built with the `GKRAND` option (which
-defines `USE_GKRAND`); the default build uses the C library's `rand()` instead.
-Full text: [`LICENSES/BSD-3-Clause-MT.txt`](LICENSES/BSD-3-Clause-MT.txt).
+code is selected when GKlib is built with `GKLIB_USE_GKRAND=ON`, which defines
+`USE_GKRAND`; the default build uses the C library's `rand()` instead. Full text:
+[`LICENSES/BSD-3-Clause-MT.txt`](LICENSES/BSD-3-Clause-MT.txt).
 
 The copy bundled in `src/random.c` reproduces the upstream copyright notice and
 warranty disclaimer; the canonical three redistribution conditions are recorded

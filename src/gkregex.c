@@ -2270,15 +2270,20 @@ re_dfa_add_node (re_dfa_t *dfa, re_token_t token)
 	return -1;
       dfa->nodes = new_nodes;
       new_nexts = re_realloc (dfa->nexts, int, new_nodes_alloc);
-      new_indices = re_realloc (dfa->org_indices, int, new_nodes_alloc);
-      new_edests = re_realloc (dfa->edests, re_node_set, new_nodes_alloc);
-      new_eclosures = re_realloc (dfa->eclosures, re_node_set, new_nodes_alloc);
-      if (BE (new_nexts == NULL || new_indices == NULL
-	      || new_edests == NULL || new_eclosures == NULL, 0))
+      if (BE (new_nexts == NULL, 0))
 	return -1;
       dfa->nexts = new_nexts;
+      new_indices = re_realloc (dfa->org_indices, int, new_nodes_alloc);
+      if (BE (new_indices == NULL, 0))
+	return -1;
       dfa->org_indices = new_indices;
+      new_edests = re_realloc (dfa->edests, re_node_set, new_nodes_alloc);
+      if (BE (new_edests == NULL, 0))
+	return -1;
       dfa->edests = new_edests;
+      new_eclosures = re_realloc (dfa->eclosures, re_node_set, new_nodes_alloc);
+      if (BE (new_eclosures == NULL, 0))
+	return -1;
       dfa->eclosures = new_eclosures;
       dfa->nodes_alloc = new_nodes_alloc;
     }
@@ -2549,10 +2554,16 @@ create_cd_newstate (const re_dfa_t *dfa, const re_node_set *nodes,
 	      newstate->entrance_nodes = re_malloc (re_node_set, 1);
 	      if (BE (newstate->entrance_nodes == NULL, 0))
 		{
+		  newstate->entrance_nodes = &newstate->nodes;
 		  free_state (newstate);
 		  return NULL;
 		}
-	      re_node_set_init_copy (newstate->entrance_nodes, nodes);
+	      err = re_node_set_init_copy (newstate->entrance_nodes, nodes);
+	      if (BE (err != REG_NOERROR, 0))
+		{
+		  free_state (newstate);
+		  return NULL;
+		}
 	      nctx_nodes = 0;
 	      newstate->has_constraint = 1;
 	    }
@@ -5205,13 +5216,14 @@ build_range_exp (bitset_t sbcset, bracket_elem_t *start_elem,
 	       are NULL if *range_alloc == 0.  */
 	    new_array_start = re_realloc (mbcset->range_starts, wchar_t,
 				          new_nranges);
+	    if (BE (new_array_start == NULL, 0))
+	      return REG_ESPACE;
+	    mbcset->range_starts = new_array_start;
 	    new_array_end = re_realloc (mbcset->range_ends, wchar_t,
 				        new_nranges);
-
-	    if (BE (new_array_start == NULL || new_array_end == NULL, 0))
+	    if (BE (new_array_end == NULL, 0))
 	      return REG_ESPACE;
 
-	    mbcset->range_starts = new_array_start;
 	    mbcset->range_ends = new_array_end;
 	    *range_alloc = new_nranges;
           }
@@ -5447,13 +5459,14 @@ parse_bracket_exp (re_string_t *regexp, re_dfa_t *dfa, re_token_t *token,
 	      new_nranges = 2 * mbcset->nranges + 1;
 	      new_array_start = re_realloc (mbcset->range_starts, uint32_t,
 					    new_nranges);
+	      if (BE (new_array_start == NULL, 0))
+	        return REG_ESPACE;
+	      mbcset->range_starts = new_array_start;
 	      new_array_end = re_realloc (mbcset->range_ends, uint32_t,
 				          new_nranges);
-
-	      if (BE (new_array_start == NULL || new_array_end == NULL, 0))
+	      if (BE (new_array_end == NULL, 0))
 	        return REG_ESPACE;
 
-	      mbcset->range_starts = new_array_start;
 	      mbcset->range_ends = new_array_end;
 	      *range_alloc = new_nranges;
 	    }
@@ -6882,10 +6895,24 @@ re_copy_regs (regs, pmatch, nregs, regs_allocated)
   /* Have the register data arrays been allocated?  */
   if (regs_allocated == REGS_UNALLOCATED)
     { /* No.  So allocate them with malloc.  */
-      regs->start = re_malloc (regoff_t, need_regs);
-      regs->end = re_malloc (regoff_t, need_regs);
-      if (BE (regs->start == NULL, 0) || BE (regs->end == NULL, 0))
-	return REGS_UNALLOCATED;
+      regoff_t *new_start = re_malloc (regoff_t, need_regs);
+      regoff_t *new_end;
+      if (BE (new_start == NULL, 0))
+	{
+	  regs->start = regs->end = NULL;
+	  regs->num_regs = 0;
+	  return REGS_UNALLOCATED;
+	}
+      new_end = re_malloc (regoff_t, need_regs);
+      if (BE (new_end == NULL, 0))
+	{
+	  re_free (new_start);
+	  regs->start = regs->end = NULL;
+	  regs->num_regs = 0;
+	  return REGS_UNALLOCATED;
+	}
+      regs->start = new_start;
+      regs->end = new_end;
       regs->num_regs = need_regs;
     }
   else if (regs_allocated == REGS_REALLOCATE)
@@ -6895,9 +6922,24 @@ re_copy_regs (regs, pmatch, nregs, regs_allocated)
       if (BE (need_regs > regs->num_regs, 0))
 	{
 	  regoff_t *new_start = re_realloc (regs->start, regoff_t, need_regs);
-	  regoff_t *new_end = re_realloc (regs->end, regoff_t, need_regs);
-	  if (BE (new_start == NULL, 0) || BE (new_end == NULL, 0))
-	    return REGS_UNALLOCATED;
+	  regoff_t *new_end;
+	  if (BE (new_start == NULL, 0))
+	    {
+	      re_free (regs->start);
+	      re_free (regs->end);
+	      regs->start = regs->end = NULL;
+	      regs->num_regs = 0;
+	      return REGS_UNALLOCATED;
+	    }
+	  new_end = re_realloc (regs->end, regoff_t, need_regs);
+	  if (BE (new_end == NULL, 0))
+	    {
+	      re_free (new_start);
+	      re_free (regs->end);
+	      regs->start = regs->end = NULL;
+	      regs->num_regs = 0;
+	      return REGS_UNALLOCATED;
+	    }
 	  regs->start = new_start;
 	  regs->end = new_end;
 	  regs->num_regs = need_regs;
@@ -7713,8 +7755,10 @@ push_fail_stack (struct re_fail_stack_t *fs, int str_idx, int dest_node,
 		 int nregs, regmatch_t *regs, re_node_set *eps_via_nodes)
 {
   reg_errcode_t err;
-  int num = fs->num++;
-  if (fs->num == fs->alloc)
+  int num = fs->num;
+  regmatch_t *new_regs;
+  re_node_set new_eps_via_nodes;
+  if (num + 1 == fs->alloc)
     {
       struct re_fail_stack_ent_t *new_array;
       new_array = realloc (fs->stack, (sizeof (struct re_fail_stack_ent_t)
@@ -7724,14 +7768,22 @@ push_fail_stack (struct re_fail_stack_t *fs, int str_idx, int dest_node,
       fs->alloc *= 2;
       fs->stack = new_array;
     }
+  new_regs = re_malloc (regmatch_t, nregs);
+  if (new_regs == NULL)
+    return REG_ESPACE;
+  memcpy (new_regs, regs, sizeof (regmatch_t) * nregs);
+  err = re_node_set_init_copy (&new_eps_via_nodes, eps_via_nodes);
+  if (BE (err != REG_NOERROR, 0))
+    {
+      re_free (new_regs);
+      return err;
+    }
   fs->stack[num].idx = str_idx;
   fs->stack[num].node = dest_node;
-  fs->stack[num].regs = re_malloc (regmatch_t, nregs);
-  if (fs->stack[num].regs == NULL)
-    return REG_ESPACE;
-  memcpy (fs->stack[num].regs, regs, sizeof (regmatch_t) * nregs);
-  err = re_node_set_init_copy (&fs->stack[num].eps_via_nodes, eps_via_nodes);
-  return err;
+  fs->stack[num].regs = new_regs;
+  fs->stack[num].eps_via_nodes = new_eps_via_nodes;
+  fs->num++;
+  return REG_NOERROR;
 }
 
 static int

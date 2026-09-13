@@ -4,6 +4,21 @@ cmake_minimum_required(VERSION 3.24)
 set(GKLIB_CONSUMER_LANGUAGE CXX CACHE STRING "Consumer language: CXX or Fortran")
 project(GKlibOpenMPConsumer LANGUAGES ${GKLIB_CONSUMER_LANGUAGE})
 
+get_property(_initial_languages GLOBAL PROPERTY ENABLED_LANGUAGES)
+list(FIND _initial_languages "${GKLIB_CONSUMER_LANGUAGE}" _language_index)
+if(_language_index EQUAL -1)
+  message(FATAL_ERROR
+    "The consumer language was not enabled: ${_initial_languages}")
+endif()
+if(GKLIB_CONSUMER_LANGUAGE STREQUAL "Fortran")
+  foreach(_unexpected_language IN ITEMS C CXX)
+    if(_unexpected_language IN_LIST _initial_languages)
+      message(FATAL_ERROR
+        "The test cache enabled ${_unexpected_language} in a Fortran-only consumer")
+    endif()
+  endforeach()
+endif()
+
 # Hide development libraries after compiler detection. Static packages must
 # diagnose their missing runtime; shared packages need no OpenMP SDK to link.
 if(CONSUMER_HIDE_RUNTIME)

@@ -67,3 +67,6 @@ lib/
 # Python maintenance tool caches
 __pycache__/
 *.pyc
+
+# Local CMake configuration
+CMakeUserPresets.json

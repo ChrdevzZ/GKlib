@@ -4,7 +4,7 @@
 
 The allocation routines included are for 1D and 2D arrays of the 
 most datatypes that GKlib support. Many of these routines are 
-defined with the help of the macros in gk_memory.h. These macros 
+defined with the help of the macros in gk_mkmemory.h. These macros
 can be used to define other memory allocation routines.
 
 \date   Started 4/3/2007
@@ -14,9 +14,111 @@ can be used to define other memory allocation routines.
 
 
 #include <GKlib.h>
+#include "memory_internal.h"
 
 /* This is for the global mcore that tracks all heap allocations */
 static GKLIB_THREAD_LOCAL gk_mcore_t *gkmcore = NULL;
+
+
+static int gk_gkmcoreFind(gk_mcore_t *mcore, void *ptr, size_t *r_mop)
+{
+  size_t i;
+
+  for (i=mcore->cmop; i>0; ) {
+    i--;
+    if (mcore->mops[i].type == GK_MOPT_MARK) {
+      gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
+      return 0;
+    }
+
+    if (mcore->mops[i].ptr == ptr) {
+      if (mcore->mops[i].type != GK_MOPT_HEAP) {
+        gk_errexit(SIGMEM, "Trying to locate a non-HEAP mop.\n");
+        return 0;
+      }
+
+      *r_mop = i;
+      return 1;
+    }
+  }
+
+  gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
+  return 0;
+}
+
+
+static int gk_gkmcoreFindAny(gk_mcore_t *mcore, void *ptr, size_t *r_mop)
+{
+  size_t i;
+
+  for (i=mcore->cmop; i>0; ) {
+    i--;
+    if (mcore->mops[i].type == GK_MOPT_HEAP &&
+        mcore->mops[i].ptr == ptr) {
+      *r_mop = i;
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+
+static void gk_gkmcoreUpdateRealloc(gk_mcore_t *mcore, size_t mop,
+    size_t nbytes, void *ptr)
+{
+  size_t oldnbytes = mcore->mops[mop].nbytes;
+
+  mcore->mops[mop].nbytes = nbytes;
+  mcore->mops[mop].ptr = ptr;
+  mcore->num_hallocs++;
+  mcore->size_hallocs += nbytes;
+  mcore->cur_hallocs -= oldnbytes;
+  mcore->cur_hallocs += nbytes;
+  if (mcore->max_hallocs < mcore->cur_hallocs)
+    mcore->max_hallocs = mcore->cur_hallocs;
+}
+
+
+void *gk_realloc_mcore(void *oldptr, size_t nbytes, char *msg)
+{
+  void *ptr;
+  int had_oldptr = (oldptr != NULL);
+  int tracked = 0;
+  size_t mop = 0;
+
+  if (nbytes == 0)
+    nbytes++;
+
+  if (gkmcore != NULL) {
+    if (had_oldptr)
+      tracked = gk_gkmcoreFindAny(gkmcore, oldptr, &mop);
+    else if (!gk_gkmcoreEnsureCapacity(gkmcore)) {
+      fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
+      fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
+      gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.");
+      return NULL;
+    }
+  }
+
+  ptr = (void *)realloc(oldptr, nbytes);
+  if (ptr == NULL) {
+    fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
+    fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
+    gk_errexit(SIGMEM, "***Memory realloc failed for %s. " "Requested size: %zu bytes",
+        msg, nbytes);
+    return NULL;
+  }
+
+  if (gkmcore != NULL) {
+    if (tracked)
+      gk_gkmcoreUpdateRealloc(gkmcore, mop, nbytes, ptr);
+    else if (!had_oldptr)
+      gk_gkmcoreAddReserved(gkmcore, GK_MOPT_HEAP, nbytes, ptr);
+  }
+
+  return ptr;
+}
 
 
 /*************************************************************************/
@@ -74,6 +176,7 @@ void gk_AllocMatrix(void ***r_matrix, size_t elmlen, size_t ndim1, size_t ndim2)
     if ((matrix[i] = (void *)gk_malloc(ndim2*elmlen, "gk_AllocMatrix: matrix[i]")) == NULL) {
       for (j=0; j<i; j++) 
         gk_free((void **)&matrix[j], LTERM);
+      gk_free((void **)&matrix, LTERM);
       return;
     }
   }
@@ -112,6 +215,9 @@ int gk_malloc_init(void)
     gkmcore = gk_gkmcoreCreate();
 
   if (gkmcore == NULL)
+    return 0;
+
+  if (!gk_gkmcoreEnsureCapacity(gkmcore))
     return 0;
 
   gk_gkmcorePush(gkmcore);
@@ -153,6 +259,13 @@ void *gk_malloc(size_t nbytes, char *msg)
   if (nbytes == 0)
     nbytes++;  /* Force mallocs to actually allocate some memory */
 
+  if (gkmcore != NULL && !gk_gkmcoreEnsureCapacity(gkmcore)) {
+    fprintf(stderr, "   Current memory used:  %10zu bytes\n", gk_GetCurMemoryUsed());
+    fprintf(stderr, "   Maximum memory used:  %10zu bytes\n", gk_GetMaxMemoryUsed());
+    gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.");
+    return NULL;
+  }
+
   ptr = (void *)malloc(nbytes);
 
   if (ptr == NULL) {
@@ -164,7 +277,8 @@ void *gk_malloc(size_t nbytes, char *msg)
   }
 
   /* add this memory allocation */
-  if (gkmcore != NULL) gk_gkmcoreAdd(gkmcore, GK_MOPT_HEAP, nbytes, ptr);
+  if (gkmcore != NULL)
+    gk_gkmcoreAddReserved(gkmcore, GK_MOPT_HEAP, nbytes, ptr);
 
   return ptr;
 }
@@ -176,12 +290,25 @@ void *gk_malloc(size_t nbytes, char *msg)
 void *gk_realloc(void *oldptr, size_t nbytes, char *msg)
 {
   void *ptr=NULL;
+  int had_oldptr;
+  size_t mop=0;
 
   if (nbytes == 0)
     nbytes++;  /* Force mallocs to actually allocate some memory */
+  had_oldptr = (oldptr != NULL);
 
-  /* remove this memory de-allocation */
-  if (gkmcore != NULL && oldptr != NULL) gk_gkmcoreDel(gkmcore, oldptr);
+  if (gkmcore != NULL) {
+    if (had_oldptr) {
+      if (!gk_gkmcoreFind(gkmcore, oldptr, &mop))
+        return NULL;
+    }
+    else if (!gk_gkmcoreEnsureCapacity(gkmcore)) {
+      fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
+      fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
+      gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.");
+      return NULL;
+    }
+  }
 
   ptr = (void *)realloc(oldptr, nbytes);
 
@@ -193,10 +320,35 @@ void *gk_realloc(void *oldptr, size_t nbytes, char *msg)
     return NULL;
   }
 
-  /* add this memory allocation */
-  if (gkmcore != NULL) gk_gkmcoreAdd(gkmcore, GK_MOPT_HEAP, nbytes, ptr);
+  if (gkmcore != NULL) {
+    if (!had_oldptr) {
+      gk_gkmcoreAddReserved(gkmcore, GK_MOPT_HEAP, nbytes, ptr);
+    }
+    else
+      gk_gkmcoreUpdateRealloc(gkmcore, mop, nbytes, ptr);
+  }
 
   return ptr;
+}
+
+
+static int gk_freePointer(void **ptr)
+{
+  /* Leave ownership with the caller when the active tracker rejects it. */
+  if (*ptr != NULL) {
+    if (gkmcore != NULL) {
+      size_t cmop = gkmcore->cmop;
+
+      gk_gkmcoreDel(gkmcore, *ptr);
+      if (gkmcore->cmop == cmop)
+        return 0;
+    }
+
+    free(*ptr);
+  }
+  *ptr = NULL;
+
+  return 1;
 }
 
 
@@ -208,25 +360,15 @@ void gk_free(void **ptr1,...)
   va_list plist;
   void **ptr;
 
-  if (*ptr1 != NULL) {
-    free(*ptr1);
-
-    /* remove this memory de-allocation */
-    if (gkmcore != NULL) 
-      gk_gkmcoreDel(gkmcore, *ptr1);
-  }
-  *ptr1 = NULL;
+  if (!gk_freePointer(ptr1))
+    return;
 
   va_start(plist, ptr1);
   while ((ptr = va_arg(plist, void **)) != LTERM) {
-    if (*ptr != NULL) {
-      free(*ptr);
-
-      /* remove this memory de-allocation */
-      if (gkmcore != NULL) 
-        gk_gkmcoreDel(gkmcore, *ptr);
+    if (!gk_freePointer(ptr)) {
+      va_end(plist);
+      return;
     }
-    *ptr = NULL;
   }
   va_end(plist);
 }          
