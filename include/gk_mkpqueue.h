@@ -18,12 +18,47 @@
 /**************************************************************************/\
 PQT *FPRFX ## Create(size_t maxnodes)\
 {\
-  PQT *queue; \
+  PQT *volatile queue;\
+  volatile int saved_errno;\
+  volatile int signum=0;\
 \
   queue = (PQT *)gk_malloc(sizeof(PQT), (char *)"gk_pqCreate: queue");\
-  FPRFX ## Init(queue, maxnodes);\
+  if (queue == NULL)\
+    return NULL;\
+  memset(queue, 0, sizeof(PQT));\
+  if (!gk_sigtrap()) {\
+    gk_free((void **)&queue, LTERM);\
+    errno = ENOMEM;\
+    gk_errexit(SIGMEM, "gk_pqCreate: signal trap unavailable");\
+    errno = ENOMEM;\
+    return NULL;\
+  }\
+  switch (gk_sigcatch()) {\
+    case 0:\
+      break;\
+    case SIGMEM:\
+      signum = SIGMEM;\
+      break;\
+    default:\
+      signum = SIGERR;\
+      break;\
+  }\
+  if (signum == 0)\
+    FPRFX ## Init((PQT *)queue, maxnodes);\
+  saved_errno = errno != 0 ? errno : ENOMEM;\
+  gk_siguntrap();\
+  if (queue->heap == NULL || queue->locator == NULL) {\
+    FPRFX ## Free((PQT *)queue);\
+    gk_free((void **)&queue, LTERM);\
+    errno = saved_errno;\
+  }\
+  if (signum != 0) {\
+    errno = saved_errno;\
+    raise(signum);\
+    errno = saved_errno;\
+  }\
 \
-  return queue;\
+  return (PQT *)queue;\
 }\
 \
 \
@@ -32,11 +67,62 @@ PQT *FPRFX ## Create(size_t maxnodes)\
 /**************************************************************************/\
 void FPRFX ## Init(PQT *queue, size_t maxnodes)\
 {\
+  volatile int saved_errno;\
+  volatile int signum=0;\
+  PQT *volatile vqueue=queue;\
+\
+  if (queue == NULL) {\
+    errno = EINVAL;\
+    gk_errexit(SIGERR, "gk_pqInit: invalid queue");\
+    errno = EINVAL;\
+    return;\
+  }\
+  if (maxnodes > (size_t)PTRDIFF_MAX) {\
+    memset(queue, 0, sizeof(PQT));\
+    errno = EOVERFLOW;\
+    gk_errexit(SIGMEM, "gk_PQInit: size overflow");\
+    errno = EOVERFLOW;\
+    return;\
+  }\
   queue->nnodes = 0;\
   queue->maxnodes = maxnodes;\
+  queue->heap = NULL;\
+  queue->locator = NULL;\
 \
-  queue->heap    = KVMALLOC(maxnodes, (char *)"gk_PQInit: heap");\
-  queue->locator = gk_idxsmalloc(maxnodes, -1, (char *)"gk_PQInit: locator");\
+  if (!gk_sigtrap()) {\
+    queue->maxnodes = 0;\
+    errno = ENOMEM;\
+    gk_errexit(SIGMEM, "gk_PQInit: signal trap unavailable");\
+    errno = ENOMEM;\
+    return;\
+  }\
+  switch (gk_sigcatch()) {\
+    case 0:\
+      break;\
+    case SIGMEM:\
+      signum = SIGMEM;\
+      break;\
+    default:\
+      signum = SIGERR;\
+      break;\
+  }\
+  if (signum == 0) {\
+    queue->heap    = KVMALLOC(maxnodes, (char *)"gk_PQInit: heap");\
+    if (queue->heap != NULL)\
+      queue->locator = gk_idxsmalloc(maxnodes, -1, (char *)"gk_PQInit: locator");\
+  }\
+  if (signum != 0 || vqueue->heap == NULL || vqueue->locator == NULL) {\
+    saved_errno = errno != 0 ? errno : ENOMEM;\
+    gk_free((void **)&vqueue->heap, LTERM);\
+    vqueue->maxnodes = 0;\
+    errno = saved_errno;\
+  }\
+  gk_siguntrap();\
+  if (signum != 0) {\
+    errno = saved_errno;\
+    raise(signum);\
+    errno = saved_errno;\
+  }\
 }\
 \
 \
@@ -45,12 +131,12 @@ void FPRFX ## Init(PQT *queue, size_t maxnodes)\
 /**************************************************************************/\
 void FPRFX ## Reset(PQT *queue)\
 {\
-  ssize_t i;\
+  size_t i;\
   ssize_t *locator=queue->locator;\
   KVT *heap=queue->heap;\
 \
-  for (i=queue->nnodes-1; i>=0; i--)\
-    locator[heap[i].val] = -1;\
+  for (i=queue->nnodes; i>0; i--)\
+    locator[heap[i-1].val] = -1;\
   queue->nnodes = 0;\
 }\
 \
@@ -92,7 +178,7 @@ size_t FPRFX ## Length(PQT *queue)\
 /**************************************************************************/\
 int FPRFX ## Insert(PQT *queue, VT node, KT key)\
 {\
-  ssize_t i, j;\
+  size_t i, j;\
   ssize_t *locator=queue->locator;\
   KVT *heap=queue->heap;\
 \
@@ -105,16 +191,15 @@ int FPRFX ## Insert(PQT *queue, VT node, KT key)\
     j = (i-1)>>1;\
     if (KEY_LT(key, heap[j].key)) {\
       heap[i] = heap[j];\
-      locator[heap[i].val] = i;\
+      locator[heap[i].val] = (ssize_t)i;\
       i = j;\
     }\
     else\
       break;\
   }\
-  ASSERT(i >= 0);\
   heap[i].key   = key;\
   heap[i].val   = node;\
-  locator[node] = i;\
+  locator[node] = (ssize_t)i;\
 \
   ASSERT2(FPRFX ## CheckHeap(queue));\
 \
@@ -127,7 +212,7 @@ int FPRFX ## Insert(PQT *queue, VT node, KT key)\
 /**************************************************************************/\
 int FPRFX ## Delete(PQT *queue, VT node)\
 {\
-  ssize_t i, j;\
+  size_t i, j;\
   size_t nnodes;\
   KT newkey, oldkey;\
   ssize_t *locator=queue->locator;\
@@ -138,7 +223,7 @@ int FPRFX ## Delete(PQT *queue, VT node)\
 \
   ASSERT2(FPRFX ## CheckHeap(queue));\
 \
-  i = locator[node];\
+  i = (size_t)locator[node];\
   locator[node] = -1;\
 \
   if (--queue->nnodes > 0 && heap[queue->nnodes].val != node) {\
@@ -151,7 +236,7 @@ int FPRFX ## Delete(PQT *queue, VT node)\
         j = (i-1)>>1;\
         if (KEY_LT(newkey, heap[j].key)) {\
           heap[i] = heap[j];\
-          locator[heap[i].val] = i;\
+          locator[heap[i].val] = (ssize_t)i;\
           i = j;\
         }\
         else\
@@ -165,13 +250,13 @@ int FPRFX ## Delete(PQT *queue, VT node)\
           if (j+1 < nnodes && KEY_LT(heap[j+1].key, heap[j].key))\
             j++;\
           heap[i] = heap[j];\
-          locator[heap[i].val] = i;\
+          locator[heap[i].val] = (ssize_t)i;\
           i = j;\
         }\
         else if (j+1 < nnodes && KEY_LT(heap[j+1].key, newkey)) {\
           j++;\
           heap[i] = heap[j];\
-          locator[heap[i].val] = i;\
+          locator[heap[i].val] = (ssize_t)i;\
           i = j;\
         }\
         else\
@@ -181,7 +266,7 @@ int FPRFX ## Delete(PQT *queue, VT node)\
 \
     heap[i].key   = newkey;\
     heap[i].val   = node;\
-    locator[node] = i;\
+    locator[node] = (ssize_t)i;\
   }\
 \
   ASSERT2(FPRFX ## CheckHeap(queue));\
@@ -195,7 +280,7 @@ int FPRFX ## Delete(PQT *queue, VT node)\
 /**************************************************************************/\
 void FPRFX ## Update(PQT *queue, VT node, KT newkey)\
 {\
-  ssize_t i, j;\
+  size_t i, j;\
   size_t nnodes;\
   KT oldkey;\
   ssize_t *locator=queue->locator;\
@@ -208,14 +293,14 @@ void FPRFX ## Update(PQT *queue, VT node, KT newkey)\
   ASSERT(heap[locator[node]].val == node);\
   ASSERT2(FPRFX ## CheckHeap(queue));\
 \
-  i = locator[node];\
+  i = (size_t)locator[node];\
 \
   if (KEY_LT(newkey, oldkey)) { /* Filter-up */\
     while (i > 0) {\
       j = (i-1)>>1;\
       if (KEY_LT(newkey, heap[j].key)) {\
         heap[i] = heap[j];\
-        locator[heap[i].val] = i;\
+        locator[heap[i].val] = (ssize_t)i;\
         i = j;\
       }\
       else\
@@ -229,13 +314,13 @@ void FPRFX ## Update(PQT *queue, VT node, KT newkey)\
         if (j+1 < nnodes && KEY_LT(heap[j+1].key, heap[j].key))\
           j++;\
         heap[i] = heap[j];\
-        locator[heap[i].val] = i;\
+        locator[heap[i].val] = (ssize_t)i;\
         i = j;\
       }\
       else if (j+1 < nnodes && KEY_LT(heap[j+1].key, newkey)) {\
         j++;\
         heap[i] = heap[j];\
-        locator[heap[i].val] = i;\
+        locator[heap[i].val] = (ssize_t)i;\
         i = j;\
       }\
       else\
@@ -245,7 +330,7 @@ void FPRFX ## Update(PQT *queue, VT node, KT newkey)\
 \
   heap[i].key   = newkey;\
   heap[i].val   = node;\
-  locator[node] = i;\
+  locator[node] = (ssize_t)i;\
 \
   ASSERT2(FPRFX ## CheckHeap(queue));\
 \
@@ -259,7 +344,7 @@ void FPRFX ## Update(PQT *queue, VT node, KT newkey)\
 /**************************************************************************/\
 VT FPRFX ## GetTop(PQT *queue)\
 {\
-  ssize_t i, j;\
+  size_t i, j;\
   ssize_t *locator;\
   KVT *heap;\
   VT vtx, node;\
@@ -287,13 +372,13 @@ VT FPRFX ## GetTop(PQT *queue)\
         if (j+1 < queue->nnodes && KEY_LT(heap[j+1].key, heap[j].key))\
           j = j+1;\
         heap[i] = heap[j];\
-        locator[heap[i].val] = i;\
+        locator[heap[i].val] = (ssize_t)i;\
         i = j;\
       }\
       else if (j+1 < queue->nnodes && KEY_LT(heap[j+1].key, key)) {\
         j = j+1;\
         heap[i] = heap[j];\
-        locator[heap[i].val] = i;\
+        locator[heap[i].val] = (ssize_t)i;\
         i = j;\
       }\
       else\
@@ -302,7 +387,7 @@ VT FPRFX ## GetTop(PQT *queue)\
 \
     heap[i].key   = key;\
     heap[i].val   = node;\
-    locator[node] = i;\
+    locator[node] = (ssize_t)i;\
   }\
 \
   ASSERT2(FPRFX ## CheckHeap(queue));\
@@ -383,7 +468,7 @@ VT FPRFX ## SeeConstraintTop(PQT *queue, KT maxwgt, KT *wgts)\
 /**************************************************************************/\
 int FPRFX ## CheckHeap(PQT *queue)\
 {\
-  ssize_t i, j;\
+  size_t i, j;\
   size_t nnodes;\
   ssize_t *locator;\
   KVT *heap;\
@@ -391,13 +476,14 @@ int FPRFX ## CheckHeap(PQT *queue)\
   heap    = queue->heap;\
   locator = queue->locator;\
   nnodes  = queue->nnodes;\
+  (void)heap;\
 \
   if (nnodes == 0)\
     return 1;\
 \
   ASSERT(locator[heap[0].val] == 0);\
   for (i=1; i<nnodes; i++) {\
-    ASSERT(locator[heap[i].val] == i);\
+    ASSERT((size_t)locator[heap[i].val] == i);\
     ASSERT(!KEY_LT(heap[i].key, heap[(i-1)/2].key));\
   }\
   for (i=1; i<nnodes; i++)\
@@ -407,6 +493,7 @@ int FPRFX ## CheckHeap(PQT *queue)\
     if (locator[i] != -1)\
       j++;\
   }\
+  (void)j;\
   ASSERTP(j == nnodes, ("%jd %jd\n", (intmax_t)j, (intmax_t)nnodes));\
 \
   return 1;\

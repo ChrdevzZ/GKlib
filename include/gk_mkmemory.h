@@ -10,34 +10,54 @@
 #ifndef _GK_MKMEMORY_H_
 #define _GK_MKMEMORY_H_
 
+#include <stdint.h>
+
 
 #define GK_MKALLOC(PRFX, TYPE)\
 /*************************************************************************/\
 /*! The macro for gk_?malloc()-class of routines */\
 /**************************************************************************/\
-TYPE *PRFX ## malloc(size_t n, char *msg)\
+TYPE *PRFX ## malloc(size_t n, const char *msg)\
 {\
-  return (TYPE *)gk_malloc(sizeof(TYPE)*n, msg);\
+  if (n > SIZE_MAX/sizeof(TYPE)) { \
+    errno = EOVERFLOW; \
+    gk_errexit(SIGMEM, "***Memory allocation size overflow."); \
+    errno = EOVERFLOW; \
+    return NULL; \
+  } \
+  return (TYPE *)gk_malloc(n*sizeof(TYPE), msg);\
 }\
 \
 \
 /*************************************************************************/\
 /*! The macro for gk_?realloc()-class of routines */\
 /**************************************************************************/\
-TYPE *PRFX ## realloc(TYPE *ptr, size_t n, char *msg)\
+TYPE *PRFX ## realloc(TYPE *ptr, size_t n, const char *msg)\
 {\
-  return (TYPE *)gk_realloc((void *)ptr, sizeof(TYPE)*n, msg);\
+  if (n > SIZE_MAX/sizeof(TYPE)) { \
+    errno = EOVERFLOW; \
+    gk_errexit(SIGMEM, "***Memory reallocation size overflow."); \
+    errno = EOVERFLOW; \
+    return NULL; \
+  } \
+  return (TYPE *)gk_realloc((void *)ptr, n*sizeof(TYPE), msg);\
 }\
 \
 \
 /*************************************************************************/\
 /*! The macro for gk_?smalloc()-class of routines */\
 /**************************************************************************/\
-TYPE *PRFX ## smalloc(size_t n, TYPE ival, char *msg)\
+TYPE *PRFX ## smalloc(size_t n, TYPE ival, const char *msg)\
 {\
   TYPE *ptr;\
 \
-  ptr = (TYPE *)gk_malloc(sizeof(TYPE)*n, msg);\
+  if (n > SIZE_MAX/sizeof(TYPE)) { \
+    errno = EOVERFLOW; \
+    gk_errexit(SIGMEM, "***Memory allocation size overflow."); \
+    errno = EOVERFLOW; \
+    return NULL; \
+  } \
+  ptr = (TYPE *)gk_malloc(n*sizeof(TYPE), msg);\
   if (ptr == NULL) \
     return NULL; \
 \
@@ -64,31 +84,39 @@ TYPE *PRFX ## set(size_t n, TYPE val, TYPE *x)\
 /*************************************************************************/\
 TYPE *PRFX ## copy(size_t n, TYPE *a, TYPE *b)\
 {\
-  return (TYPE *)memmove((void *)b, (void *)a, sizeof(TYPE)*n);\
+  if (n > SIZE_MAX/sizeof(TYPE)) { \
+    errno = EOVERFLOW; \
+    gk_errexit(SIGMEM, "***Memory copy size overflow."); \
+    errno = EOVERFLOW; \
+    return NULL; \
+  } \
+  return (TYPE *)memmove((void *)b, (void *)a, n*sizeof(TYPE));\
 }\
 \
 \
 /*************************************************************************/\
 /*! The macro for gk_?AllocMatrix()-class of routines */\
 /**************************************************************************/\
-TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, char *errmsg)\
+TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, const char *errmsg)\
 {\
-  gk_idx_t i, j;\
-  TYPE **matrix;\
+  size_t i;\
+  TYPE **matrix=NULL;\
 \
-  matrix = (TYPE **)gk_malloc(ndim1*sizeof(TYPE *), errmsg);\
+  (void)errmsg; \
+\
+  if (ndim1 > SIZE_MAX/sizeof(TYPE *) || \
+      (ndim1 != 0 && ndim2 > SIZE_MAX/sizeof(TYPE))) { \
+    errno = EOVERFLOW; \
+    gk_errexit(SIGMEM, "***Matrix allocation size overflow."); \
+    errno = EOVERFLOW; \
+    return NULL; \
+  } \
+  gk_AllocMatrix((void ***)&matrix, sizeof(TYPE), ndim1, ndim2); \
   if (matrix == NULL) \
     return NULL;\
 \
-  for (i=0; i<ndim1; i++) { \
-    matrix[i] = PRFX ## smalloc(ndim2, value, errmsg);\
-    if (matrix[i] == NULL) { \
-      for (j=0; j<i; j++) \
-        gk_free((void **)&matrix[j], LTERM); \
-      gk_free((void **)&matrix, LTERM); \
-      return NULL; \
-    } \
-  }\
+  for (i=0; i<ndim1; i++) \
+    PRFX ## set(ndim2, value, matrix[i]); \
 \
   return matrix;\
 }\
@@ -99,9 +127,17 @@ TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, char *errmsg)
 /**************************************************************************/\
 void PRFX ## FreeMatrix(TYPE ***r_matrix, size_t ndim1, size_t ndim2)\
 {\
-  gk_idx_t i;\
+  size_t i;\
   TYPE **matrix;\
 \
+  (void)ndim2; \
+\
+  if (r_matrix == NULL) { \
+    errno = EINVAL; \
+    gk_errexit(SIGERR, "***Matrix output pointer is NULL."); \
+    errno = EINVAL; \
+    return; \
+  } \
   if (*r_matrix == NULL) \
     return; \
 \
@@ -119,7 +155,7 @@ void PRFX ## FreeMatrix(TYPE ***r_matrix, size_t ndim1, size_t ndim2)\
 /**************************************************************************/\
 void PRFX ## SetMatrix(TYPE **matrix, size_t ndim1, size_t ndim2, TYPE value)\
 {\
-  gk_idx_t i, j;\
+  size_t i, j;\
 \
   for (i=0; i<ndim1; i++) {\
     for (j=0; j<ndim2; j++)\
@@ -132,12 +168,12 @@ void PRFX ## SetMatrix(TYPE **matrix, size_t ndim1, size_t ndim2, TYPE value)\
   GK_MKALLOC_PROTO_EX(PRFX, TYPE, )
 
 #define GK_MKALLOC_PROTO_EX(PRFX, TYPE, API)\
-  API TYPE  *PRFX ## malloc(size_t n, char *msg);\
-  API TYPE  *PRFX ## realloc(TYPE *ptr, size_t n, char *msg);\
-  API TYPE  *PRFX ## smalloc(size_t n, TYPE ival, char *msg);\
+  API TYPE  *PRFX ## malloc(size_t n, const char *msg);\
+  API TYPE  *PRFX ## realloc(TYPE *ptr, size_t n, const char *msg);\
+  API TYPE  *PRFX ## smalloc(size_t n, TYPE ival, const char *msg);\
   API TYPE  *PRFX ## set(size_t n, TYPE val, TYPE *x);\
   API TYPE  *PRFX ## copy(size_t n, TYPE *a, TYPE *b);\
-  API TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, char *errmsg);\
+  API TYPE **PRFX ## AllocMatrix(size_t ndim1, size_t ndim2, TYPE value, const char *errmsg);\
   API void   PRFX ## FreeMatrix(TYPE ***r_matrix, size_t ndim1, size_t ndim2);\
   API void   PRFX ## SetMatrix(TYPE **matrix, size_t ndim1, size_t ndim2, TYPE value);\
 

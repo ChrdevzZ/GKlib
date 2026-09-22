@@ -228,7 +228,7 @@
   {									\
     GKQSORT_TYPE *const _end_ptr = _base + _elems - 1;			\
     GKQSORT_TYPE *_tmp_ptr = _base;					\
-    register GKQSORT_TYPE *_run_ptr;					\
+    GKQSORT_TYPE *_run_ptr;						\
     GKQSORT_TYPE *_thresh;						\
 									\
     _thresh = _base + _GKQSORT_MAX_THRESH;				\

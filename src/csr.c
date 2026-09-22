@@ -8,8 +8,13 @@
  */
 
 #include <GKlib.h>
+#include "io_internal.h"
+#include "memory_internal.h"
 
 #define OMPMINOPS       50000
+
+static void *gk_csr_MallocNoSignal(size_t nbytes, int *r_failed);
+static gk_csr_t *gk_csr_CreateNoSignal(int *r_failed);
 
 /*************************************************************************/
 /*! Allocate memory for a CSR matrix and initializes it 
@@ -73,6 +78,139 @@ void gk_csr_FreeContents(gk_csr_t *mat)
 
 
 /*************************************************************************/
+/*! Validates one sparse row- or column-oriented view. */
+/*************************************************************************/
+static int gk_csr_ValidateSparseView(int32_t dimension,
+    int32_t other_dimension, ssize_t *pointers, int32_t *indices,
+    float *values, ssize_t *r_nnz)
+{
+  ssize_t i, nnz;
+
+  if (pointers == NULL || pointers[0] != 0) {
+    errno = EINVAL;
+    return 0;
+  }
+  if ((size_t)dimension+1 > SIZE_MAX/sizeof(ssize_t)) {
+    errno = EOVERFLOW;
+    return 0;
+  }
+  for (i=0; i<dimension; i++) {
+    if (pointers[i] < 0 || pointers[i] > pointers[i+1]) {
+      errno = EINVAL;
+      return 0;
+    }
+  }
+  nnz = pointers[dimension];
+  if (nnz < 0) {
+    errno = EINVAL;
+    return 0;
+  }
+  if ((size_t)nnz > SIZE_MAX/sizeof(int32_t) ||
+      (values != NULL && (size_t)nnz > SIZE_MAX/sizeof(float))) {
+    errno = EOVERFLOW;
+    return 0;
+  }
+  if ((nnz > 0 || values != NULL) && indices == NULL) {
+    errno = EINVAL;
+    return 0;
+  }
+  for (i=0; i<nnz; i++) {
+    if (indices[i] < 0 || indices[i] >= other_dimension) {
+      errno = EINVAL;
+      return 0;
+    }
+  }
+
+  *r_nnz = nnz;
+  return 1;
+}
+
+
+/*************************************************************************/
+/*! Validates all sparse views present in a matrix. */
+/*************************************************************************/
+static int gk_csr_ValidateStructure(gk_csr_t *mat, ssize_t *r_rownnz,
+    ssize_t *r_colnnz)
+{
+  if (mat == NULL || mat->nrows < 0 || mat->ncols < 0 ||
+      (mat->rowptr == NULL &&
+       (mat->rowind != NULL || mat->rowval != NULL)) ||
+      (mat->colptr == NULL &&
+       (mat->colind != NULL || mat->colval != NULL))) {
+    errno = EINVAL;
+    return 0;
+  }
+  *r_rownnz = *r_colnnz = 0;
+  if (mat->rowptr != NULL &&
+      !gk_csr_ValidateSparseView(mat->nrows, mat->ncols, mat->rowptr,
+          mat->rowind, mat->rowval, r_rownnz))
+    return 0;
+  if (mat->colptr != NULL &&
+      !gk_csr_ValidateSparseView(mat->ncols, mat->nrows, mat->colptr,
+          mat->colind, mat->colval, r_colnnz))
+    return 0;
+  return 1;
+}
+
+
+/*************************************************************************/
+/*! Validates one side of a row/column permutation. */
+/*************************************************************************/
+static int gk_csr_ValidatePermutation(int32_t *permutation, int32_t nrows,
+    int32_t *seen)
+{
+  int32_t i;
+
+  memset(seen, 0, (size_t)nrows*sizeof(int32_t));
+  for (i=0; i<nrows; i++) {
+    if (permutation[i] < 0 || permutation[i] >= nrows ||
+        seen[permutation[i]]) {
+      errno = EINVAL;
+      return 0;
+    }
+    seen[permutation[i]] = 1;
+  }
+  return 1;
+}
+
+
+/*************************************************************************/
+/*! Copies tracked matrix storage without raising a signal. */
+/*************************************************************************/
+static void *gk_csr_CopyNoSignal(const void *source, size_t count,
+    size_t element_size, int *r_failed)
+{
+  void *destination;
+
+  if (element_size != 0 && count > SIZE_MAX/element_size) {
+    errno = EOVERFLOW;
+    *r_failed = 1;
+    return NULL;
+  }
+  destination = gk_csr_MallocNoSignal(count*element_size, r_failed);
+  if (destination != NULL && count != 0)
+    memcpy(destination, source, count*element_size);
+  return destination;
+}
+
+
+/*************************************************************************/
+/*! Cleans up a failed matrix transformation before reporting the error. */
+/*************************************************************************/
+static gk_csr_t *gk_csr_TransformError(gk_csr_t **mat, int saved_errno,
+    int allocation_failed, const char *operation)
+{
+  gk_csr_Free(mat);
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  gk_errexit(allocation_failed || saved_errno == ENOMEM ||
+      saved_errno == EOVERFLOW ? SIGMEM : SIGERR,
+      "Failed to %s a matrix.\n", operation);
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  return NULL;
+}
+
+
+/*************************************************************************/
 /*! Returns a copy of a matrix.
     \param mat is the matrix to be duplicated.
     \returns the newly created copy of the matrix.
@@ -80,78 +218,102 @@ void gk_csr_FreeContents(gk_csr_t *mat)
 /**************************************************************************/
 gk_csr_t *gk_csr_Dup(gk_csr_t *mat)
 {
-  gk_csr_t *nmat;
+  ssize_t rownnz, colnnz;
+  int allocation_failed=0, saved_errno=0;
+  size_t nrows, ncols;
+  gk_csr_t *nmat=NULL;
 
-  nmat = gk_csr_Create();
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
+  }
+  nrows = (size_t)mat->nrows;
+  ncols = (size_t)mat->ncols;
+  nmat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (nmat == NULL)
+    goto allocation_failure;
+  nmat->nrows = mat->nrows;
+  nmat->ncols = mat->ncols;
 
-  nmat->nrows  = mat->nrows;
-  nmat->ncols  = mat->ncols;
-
-  /* copy the row structure */
   if (mat->rowptr)
-    nmat->rowptr = gk_zcopy(mat->nrows+1, mat->rowptr, 
-                            gk_zmalloc(mat->nrows+1, "gk_csr_Dup: rowptr"));
-  if (mat->rowids)
-    nmat->rowids = gk_icopy(mat->nrows, mat->rowids, 
-                            gk_imalloc(mat->nrows, "gk_csr_Dup: rowids"));
-  if (mat->rlabels)
-    nmat->rlabels = gk_icopy(mat->nrows, mat->rlabels, 
-                            gk_imalloc(mat->nrows, "gk_csr_Dup: rlabels"));
-  if (mat->rnorms)
-    nmat->rnorms = gk_fcopy(mat->nrows, mat->rnorms, 
-                            gk_fmalloc(mat->nrows, "gk_csr_Dup: rnorms"));
-  if (mat->rsums)
-    nmat->rsums = gk_fcopy(mat->nrows, mat->rsums, 
-                            gk_fmalloc(mat->nrows, "gk_csr_Dup: rsums"));
-  if (mat->rsizes)
-    nmat->rsizes = gk_fcopy(mat->nrows, mat->rsizes, 
-                            gk_fmalloc(mat->nrows, "gk_csr_Dup: rsizes"));
-  if (mat->rvols)
-    nmat->rvols = gk_fcopy(mat->nrows, mat->rvols, 
-                            gk_fmalloc(mat->nrows, "gk_csr_Dup: rvols"));
-  if (mat->rwgts)
-    nmat->rwgts = gk_fcopy(mat->nrows, mat->rwgts, 
-                            gk_fmalloc(mat->nrows, "gk_csr_Dup: rwgts"));
+    nmat->rowptr = (ssize_t *)gk_csr_CopyNoSignal(mat->rowptr, nrows+1,
+        sizeof(ssize_t), &allocation_failed);
   if (mat->rowind)
-    nmat->rowind = gk_icopy(mat->rowptr[mat->nrows], mat->rowind, 
-                            gk_imalloc(mat->rowptr[mat->nrows], "gk_csr_Dup: rowind"));
+    nmat->rowind = (int32_t *)gk_csr_CopyNoSignal(mat->rowind,
+        (size_t)rownnz, sizeof(int32_t), &allocation_failed);
   if (mat->rowval)
-    nmat->rowval = gk_fcopy(mat->rowptr[mat->nrows], mat->rowval, 
-                            gk_fmalloc(mat->rowptr[mat->nrows], "gk_csr_Dup: rowval"));
+    nmat->rowval = (float *)gk_csr_CopyNoSignal(mat->rowval,
+        (size_t)rownnz, sizeof(float), &allocation_failed);
+  if (mat->rowids)
+    nmat->rowids = (int32_t *)gk_csr_CopyNoSignal(mat->rowids, nrows,
+        sizeof(int32_t), &allocation_failed);
+  if (mat->rlabels)
+    nmat->rlabels = (int32_t *)gk_csr_CopyNoSignal(mat->rlabels, nrows,
+        sizeof(int32_t), &allocation_failed);
+  if (mat->rmap)
+    nmat->rmap = (int32_t *)gk_csr_CopyNoSignal(mat->rmap, nrows,
+        sizeof(int32_t), &allocation_failed);
+  if (mat->rnorms)
+    nmat->rnorms = (float *)gk_csr_CopyNoSignal(mat->rnorms, nrows,
+        sizeof(float), &allocation_failed);
+  if (mat->rsums)
+    nmat->rsums = (float *)gk_csr_CopyNoSignal(mat->rsums, nrows,
+        sizeof(float), &allocation_failed);
+  if (mat->rsizes)
+    nmat->rsizes = (float *)gk_csr_CopyNoSignal(mat->rsizes, nrows,
+        sizeof(float), &allocation_failed);
+  if (mat->rvols)
+    nmat->rvols = (float *)gk_csr_CopyNoSignal(mat->rvols, nrows,
+        sizeof(float), &allocation_failed);
+  if (mat->rwgts)
+    nmat->rwgts = (float *)gk_csr_CopyNoSignal(mat->rwgts, nrows,
+        sizeof(float), &allocation_failed);
 
-  /* copy the col structure */
   if (mat->colptr)
-    nmat->colptr = gk_zcopy(mat->ncols+1, mat->colptr, 
-                            gk_zmalloc(mat->ncols+1, "gk_csr_Dup: colptr"));
-  if (mat->colids)
-    nmat->colids = gk_icopy(mat->ncols, mat->colids, 
-                            gk_imalloc(mat->ncols, "gk_csr_Dup: colids"));
-  if (mat->clabels)
-    nmat->clabels = gk_icopy(mat->ncols, mat->clabels, 
-                            gk_imalloc(mat->ncols, "gk_csr_Dup: clabels"));
-  if (mat->cnorms)
-    nmat->cnorms = gk_fcopy(mat->ncols, mat->cnorms, 
-                            gk_fmalloc(mat->ncols, "gk_csr_Dup: cnorms"));
-  if (mat->csums)
-    nmat->csums = gk_fcopy(mat->ncols, mat->csums, 
-                            gk_fmalloc(mat->ncols, "gk_csr_Dup: csums"));
-  if (mat->csizes)
-    nmat->csizes = gk_fcopy(mat->ncols, mat->csizes, 
-                            gk_fmalloc(mat->ncols, "gk_csr_Dup: csizes"));
-  if (mat->cvols)
-    nmat->cvols = gk_fcopy(mat->ncols, mat->cvols, 
-                            gk_fmalloc(mat->ncols, "gk_csr_Dup: cvols"));
-  if (mat->cwgts)
-    nmat->cwgts = gk_fcopy(mat->ncols, mat->cwgts, 
-                            gk_fmalloc(mat->ncols, "gk_csr_Dup: cwgts"));
+    nmat->colptr = (ssize_t *)gk_csr_CopyNoSignal(mat->colptr, ncols+1,
+        sizeof(ssize_t), &allocation_failed);
   if (mat->colind)
-    nmat->colind = gk_icopy(mat->colptr[mat->ncols], mat->colind, 
-                            gk_imalloc(mat->colptr[mat->ncols], "gk_csr_Dup: colind"));
+    nmat->colind = (int32_t *)gk_csr_CopyNoSignal(mat->colind,
+        (size_t)colnnz, sizeof(int32_t), &allocation_failed);
   if (mat->colval)
-    nmat->colval = gk_fcopy(mat->colptr[mat->ncols], mat->colval, 
-                            gk_fmalloc(mat->colptr[mat->ncols], "gk_csr_Dup: colval"));
+    nmat->colval = (float *)gk_csr_CopyNoSignal(mat->colval,
+        (size_t)colnnz, sizeof(float), &allocation_failed);
+  if (mat->colids)
+    nmat->colids = (int32_t *)gk_csr_CopyNoSignal(mat->colids, ncols,
+        sizeof(int32_t), &allocation_failed);
+  if (mat->clabels)
+    nmat->clabels = (int32_t *)gk_csr_CopyNoSignal(mat->clabels, ncols,
+        sizeof(int32_t), &allocation_failed);
+  if (mat->cmap)
+    nmat->cmap = (int32_t *)gk_csr_CopyNoSignal(mat->cmap, ncols,
+        sizeof(int32_t), &allocation_failed);
+  if (mat->cnorms)
+    nmat->cnorms = (float *)gk_csr_CopyNoSignal(mat->cnorms, ncols,
+        sizeof(float), &allocation_failed);
+  if (mat->csums)
+    nmat->csums = (float *)gk_csr_CopyNoSignal(mat->csums, ncols,
+        sizeof(float), &allocation_failed);
+  if (mat->csizes)
+    nmat->csizes = (float *)gk_csr_CopyNoSignal(mat->csizes, ncols,
+        sizeof(float), &allocation_failed);
+  if (mat->cvols)
+    nmat->cvols = (float *)gk_csr_CopyNoSignal(mat->cvols, ncols,
+        sizeof(float), &allocation_failed);
+  if (mat->cwgts)
+    nmat->cwgts = (float *)gk_csr_CopyNoSignal(mat->cwgts, ncols,
+        sizeof(float), &allocation_failed);
+  if (allocation_failed)
+    goto allocation_failure;
 
   return nmat;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  return gk_csr_TransformError(&nmat, saved_errno,
+      allocation_failed, "duplicate");
 }
 
 
@@ -165,49 +327,76 @@ gk_csr_t *gk_csr_Dup(gk_csr_t *mat)
 /**************************************************************************/
 gk_csr_t *gk_csr_ExtractSubmatrix(gk_csr_t *mat, int rstart, int nrows)
 {
-  ssize_t i;
-  gk_csr_t *nmat;
+  ssize_t i, first, last, nnz, rownnz, colnnz;
+  int allocation_failed=0, saved_errno=0;
+  size_t nrows_size;
+  gk_csr_t *nmat=NULL;
 
-  if (rstart+nrows > mat->nrows)
-    return NULL;
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
+  }
+  if (mat->rowptr == NULL || rstart < 0 || nrows < 0 ||
+      rstart > mat->nrows || nrows > mat->nrows-rstart) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  first = mat->rowptr[rstart];
+  last = mat->rowptr[rstart+nrows];
+  nnz = last-first;
+  nrows_size = (size_t)nrows;
 
-  nmat = gk_csr_Create();
-
-  nmat->nrows  = nrows;
-  nmat->ncols  = mat->ncols;
-
-  /* copy the row structure */
-  if (mat->rowptr)
-    nmat->rowptr = gk_zcopy(nrows+1, mat->rowptr+rstart, 
-                              gk_zmalloc(nrows+1, "gk_csr_ExtractSubmatrix: rowptr"));
-  for (i=nrows; i>=0; i--)
-    nmat->rowptr[i] -= nmat->rowptr[0];
-  ASSERT(nmat->rowptr[0] == 0);
-
-  if (mat->rowids)
-    nmat->rowids = gk_icopy(nrows, mat->rowids+rstart, 
-                            gk_imalloc(nrows, "gk_csr_ExtractSubmatrix: rowids"));
-  if (mat->rnorms)
-    nmat->rnorms = gk_fcopy(nrows, mat->rnorms+rstart, 
-                            gk_fmalloc(nrows, "gk_csr_ExtractSubmatrix: rnorms"));
-
-  if (mat->rsums)
-    nmat->rsums = gk_fcopy(nrows, mat->rsums+rstart, 
-                            gk_fmalloc(nrows, "gk_csr_ExtractSubmatrix: rsums"));
-
-  ASSERT(nmat->rowptr[nrows] == mat->rowptr[rstart+nrows]-mat->rowptr[rstart]);
+  nmat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (nmat == NULL)
+    goto allocation_failure;
+  nmat->nrows = nrows;
+  nmat->ncols = mat->ncols;
+  nmat->rowptr = (ssize_t *)gk_csr_CopyNoSignal(mat->rowptr+rstart,
+      nrows_size+1, sizeof(ssize_t), &allocation_failed);
   if (mat->rowind)
-    nmat->rowind = gk_icopy(mat->rowptr[rstart+nrows]-mat->rowptr[rstart], 
-                            mat->rowind+mat->rowptr[rstart], 
-                            gk_imalloc(mat->rowptr[rstart+nrows]-mat->rowptr[rstart],
-                                       "gk_csr_ExtractSubmatrix: rowind"));
+    nmat->rowind = (int32_t *)gk_csr_CopyNoSignal(mat->rowind+first,
+        (size_t)nnz, sizeof(int32_t), &allocation_failed);
   if (mat->rowval)
-    nmat->rowval = gk_fcopy(mat->rowptr[rstart+nrows]-mat->rowptr[rstart], 
-                            mat->rowval+mat->rowptr[rstart], 
-                            gk_fmalloc(mat->rowptr[rstart+nrows]-mat->rowptr[rstart],
-                                       "gk_csr_ExtractSubmatrix: rowval"));
+    nmat->rowval = (float *)gk_csr_CopyNoSignal(mat->rowval+first,
+        (size_t)nnz, sizeof(float), &allocation_failed);
+  if (mat->rowids)
+    nmat->rowids = (int32_t *)gk_csr_CopyNoSignal(mat->rowids+rstart,
+        nrows_size, sizeof(int32_t), &allocation_failed);
+  if (mat->rlabels)
+    nmat->rlabels = (int32_t *)gk_csr_CopyNoSignal(mat->rlabels+rstart,
+        nrows_size, sizeof(int32_t), &allocation_failed);
+  if (mat->rmap)
+    nmat->rmap = (int32_t *)gk_csr_CopyNoSignal(mat->rmap+rstart,
+        nrows_size, sizeof(int32_t), &allocation_failed);
+  if (mat->rnorms)
+    nmat->rnorms = (float *)gk_csr_CopyNoSignal(mat->rnorms+rstart,
+        nrows_size, sizeof(float), &allocation_failed);
+  if (mat->rsums)
+    nmat->rsums = (float *)gk_csr_CopyNoSignal(mat->rsums+rstart,
+        nrows_size, sizeof(float), &allocation_failed);
+  if (mat->rsizes)
+    nmat->rsizes = (float *)gk_csr_CopyNoSignal(mat->rsizes+rstart,
+        nrows_size, sizeof(float), &allocation_failed);
+  if (mat->rvols)
+    nmat->rvols = (float *)gk_csr_CopyNoSignal(mat->rvols+rstart,
+        nrows_size, sizeof(float), &allocation_failed);
+  if (mat->rwgts)
+    nmat->rwgts = (float *)gk_csr_CopyNoSignal(mat->rwgts+rstart,
+        nrows_size, sizeof(float), &allocation_failed);
+  if (allocation_failed)
+    goto allocation_failure;
+  for (i=nrows; i>=0; i--)
+    nmat->rowptr[i] -= first;
 
   return nmat;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  return gk_csr_TransformError(&nmat, saved_errno,
+      allocation_failed, "extract a submatrix from");
 }
 
 
@@ -221,32 +410,82 @@ gk_csr_t *gk_csr_ExtractSubmatrix(gk_csr_t *mat, int rstart, int nrows)
 /**************************************************************************/
 gk_csr_t *gk_csr_ExtractRows(gk_csr_t *mat, int nrows, int *rind)
 {
-  ssize_t i, ii, j, nnz;
-  gk_csr_t *nmat;
+  ssize_t i, ii, j, nentries, nnz=0, rownnz, colnnz;
+  int allocation_failed=0, saved_errno=0;
+  size_t nrows_size;
+  gk_csr_t *nmat=NULL;
 
-  nmat = gk_csr_Create();
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
+  }
+  if (mat->rowptr == NULL || nrows < 0 ||
+      (nrows > 0 && rind == NULL)) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  for (ii=0; ii<nrows; ii++) {
+    i = rind[ii];
+    if (i < 0 || i >= mat->nrows) {
+      saved_errno = EINVAL;
+      goto failure;
+    }
+    nentries = mat->rowptr[i+1]-mat->rowptr[i];
+    if (nnz > PTRDIFF_MAX-nentries) {
+      saved_errno = EOVERFLOW;
+      allocation_failed = 1;
+      goto failure;
+    }
+    nnz += nentries;
+  }
+  nrows_size = (size_t)nrows;
+  if (nrows_size+1 > SIZE_MAX/sizeof(ssize_t) ||
+      (size_t)nnz > SIZE_MAX/sizeof(int32_t) ||
+      (mat->rowval != NULL && (size_t)nnz > SIZE_MAX/sizeof(float))) {
+    saved_errno = EOVERFLOW;
+    allocation_failed = 1;
+    goto failure;
+  }
 
+  nmat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (nmat == NULL)
+    goto allocation_failure;
   nmat->nrows = nrows;
   nmat->ncols = mat->ncols;
-
-  for (nnz=0, i=0; i<nrows; i++)  
-    nnz += mat->rowptr[rind[i]+1]-mat->rowptr[rind[i]];
-
-  nmat->rowptr = gk_zmalloc(nmat->nrows+1, "gk_csr_ExtractPartition: rowptr");
-  nmat->rowind = gk_imalloc(nnz, "gk_csr_ExtractPartition: rowind");
-  nmat->rowval = gk_fmalloc(nnz, "gk_csr_ExtractPartition: rowval");
+  nmat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+      (nrows_size+1)*sizeof(ssize_t), &allocation_failed);
+  if (mat->rowind != NULL)
+    nmat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+        (size_t)nnz*sizeof(int32_t), &allocation_failed);
+  if (mat->rowval != NULL)
+    nmat->rowval = (float *)gk_csr_MallocNoSignal(
+        (size_t)nnz*sizeof(float), &allocation_failed);
+  if (allocation_failed)
+    goto allocation_failure;
 
   nmat->rowptr[0] = 0;
   for (nnz=0, j=0, ii=0; ii<nrows; ii++) {
     i = rind[ii];
-    gk_icopy(mat->rowptr[i+1]-mat->rowptr[i], mat->rowind+mat->rowptr[i], nmat->rowind+nnz);
-    gk_fcopy(mat->rowptr[i+1]-mat->rowptr[i], mat->rowval+mat->rowptr[i], nmat->rowval+nnz);
-    nnz += mat->rowptr[i+1]-mat->rowptr[i];
+    nentries = mat->rowptr[i+1]-mat->rowptr[i];
+    if (nentries > 0) {
+      gk_icopy(nentries, mat->rowind+mat->rowptr[i], nmat->rowind+nnz);
+      if (mat->rowval != NULL)
+        gk_fcopy(nentries, mat->rowval+mat->rowptr[i], nmat->rowval+nnz);
+    }
+    nnz += nentries;
     nmat->rowptr[++j] = nnz;
   }
   ASSERT(j == nmat->nrows);
 
   return nmat;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  return gk_csr_TransformError(&nmat, saved_errno,
+      allocation_failed, "extract rows from");
 }
 
 
@@ -260,37 +499,79 @@ gk_csr_t *gk_csr_ExtractRows(gk_csr_t *mat, int nrows, int *rind)
 /**************************************************************************/
 gk_csr_t *gk_csr_ExtractPartition(gk_csr_t *mat, int *part, int pid)
 {
-  ssize_t i, j, nnz;
-  gk_csr_t *nmat;
+  ssize_t i, j, nentries, nnz=0, rownnz, colnnz;
+  int allocation_failed=0, saved_errno=0;
+  size_t nrows;
+  gk_csr_t *nmat=NULL;
 
-  nmat = gk_csr_Create();
-
-  nmat->nrows = 0;
-  nmat->ncols = mat->ncols;
-
-  for (nnz=0, i=0; i<mat->nrows; i++) {
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
+  }
+  if (mat->rowptr == NULL || (mat->nrows > 0 && part == NULL)) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  for (nrows=0, i=0; i<mat->nrows; i++) {
     if (part[i] == pid) {
-      nmat->nrows++;
-      nnz += mat->rowptr[i+1]-mat->rowptr[i];
+      nentries = mat->rowptr[i+1]-mat->rowptr[i];
+      if (nnz > PTRDIFF_MAX-nentries) {
+        saved_errno = EOVERFLOW;
+        allocation_failed = 1;
+        goto failure;
+      }
+      nrows++;
+      nnz += nentries;
     }
   }
+  if (nrows+1 > SIZE_MAX/sizeof(ssize_t) ||
+      (size_t)nnz > SIZE_MAX/sizeof(int32_t) ||
+      (mat->rowval != NULL && (size_t)nnz > SIZE_MAX/sizeof(float))) {
+    saved_errno = EOVERFLOW;
+    allocation_failed = 1;
+    goto failure;
+  }
 
-  nmat->rowptr = gk_zmalloc(nmat->nrows+1, "gk_csr_ExtractPartition: rowptr");
-  nmat->rowind = gk_imalloc(nnz, "gk_csr_ExtractPartition: rowind");
-  nmat->rowval = gk_fmalloc(nnz, "gk_csr_ExtractPartition: rowval");
+  nmat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (nmat == NULL)
+    goto allocation_failure;
+  nmat->nrows = (int32_t)nrows;
+  nmat->ncols = mat->ncols;
+  nmat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+      (nrows+1)*sizeof(ssize_t), &allocation_failed);
+  if (mat->rowind != NULL)
+    nmat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+        (size_t)nnz*sizeof(int32_t), &allocation_failed);
+  if (mat->rowval != NULL)
+    nmat->rowval = (float *)gk_csr_MallocNoSignal(
+        (size_t)nnz*sizeof(float), &allocation_failed);
+  if (allocation_failed)
+    goto allocation_failure;
 
   nmat->rowptr[0] = 0;
   for (nnz=0, j=0, i=0; i<mat->nrows; i++) {
     if (part[i] == pid) {
-      gk_icopy(mat->rowptr[i+1]-mat->rowptr[i], mat->rowind+mat->rowptr[i], nmat->rowind+nnz);
-      gk_fcopy(mat->rowptr[i+1]-mat->rowptr[i], mat->rowval+mat->rowptr[i], nmat->rowval+nnz);
-      nnz += mat->rowptr[i+1]-mat->rowptr[i];
+      nentries = mat->rowptr[i+1]-mat->rowptr[i];
+      if (nentries > 0) {
+        gk_icopy(nentries, mat->rowind+mat->rowptr[i], nmat->rowind+nnz);
+        if (mat->rowval != NULL)
+          gk_fcopy(nentries, mat->rowval+mat->rowptr[i], nmat->rowval+nnz);
+      }
+      nnz += nentries;
       nmat->rowptr[++j] = nnz;
     }
   }
   ASSERT(j == nmat->nrows);
 
   return nmat;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  return gk_csr_TransformError(&nmat, saved_errno,
+      allocation_failed, "extract a partition from");
 }
 
 
@@ -307,26 +588,62 @@ gk_csr_t *gk_csr_ExtractPartition(gk_csr_t *mat, int *part, int pid)
 /**************************************************************************/
 gk_csr_t **gk_csr_Split(gk_csr_t *mat, int *color)
 {
-  ssize_t i, j;
-  int nrows, ncolors;
+  ssize_t i, j, rownnz, colnnz;
+  int allocation_failed=0, ncolors=1, saved_errno=0;
+  int nrows;
   ssize_t *rowptr;
   int *rowind;
   float *rowval;
-  gk_csr_t **smats;
+  gk_csr_t **smats=NULL;
+
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
+  }
+  if (mat->rowptr == NULL || (rownnz > 0 && color == NULL)) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  for (j=0; j<rownnz; j++) {
+    if (color[j] < 0) {
+      saved_errno = EINVAL;
+      goto failure;
+    }
+    if (color[j] == INT_MAX) {
+      saved_errno = EOVERFLOW;
+      allocation_failed = 1;
+      goto failure;
+    }
+    if (ncolors <= color[j])
+      ncolors = color[j]+1;
+  }
+  if ((size_t)ncolors > SIZE_MAX/sizeof(gk_csr_t *)) {
+    saved_errno = EOVERFLOW;
+    allocation_failed = 1;
+    goto failure;
+  }
 
   nrows  = mat->nrows;
   rowptr = mat->rowptr;
   rowind = mat->rowind;
   rowval = mat->rowval;
 
-  ncolors = gk_imax(rowptr[nrows], color, 1)+1;
-
-  smats = (gk_csr_t **)gk_malloc(sizeof(gk_csr_t *)*ncolors, "gk_csr_Split: smats");
+  smats = (gk_csr_t **)gk_csr_MallocNoSignal(
+      (size_t)ncolors*sizeof(gk_csr_t *), &allocation_failed);
+  if (smats == NULL)
+    goto allocation_failure;
+  memset(smats, 0, (size_t)ncolors*sizeof(gk_csr_t *));
   for (i=0; i<ncolors; i++) {
-    smats[i] = gk_csr_Create();
+    smats[i] = gk_csr_CreateNoSignal(&allocation_failed);
+    if (smats[i] == NULL)
+      goto allocation_failure;
     smats[i]->nrows  = mat->nrows;
     smats[i]->ncols  = mat->ncols;
-    smats[i]->rowptr = gk_zsmalloc(nrows+1, 0, "gk_csr_Split: smats[i]->rowptr"); 
+    smats[i]->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+        ((size_t)nrows+1)*sizeof(ssize_t), &allocation_failed);
+    if (smats[i]->rowptr == NULL)
+      goto allocation_failure;
+    memset(smats[i]->rowptr, 0, ((size_t)nrows+1)*sizeof(ssize_t));
   }
 
   for (i=0; i<nrows; i++) {
@@ -337,14 +654,23 @@ gk_csr_t **gk_csr_Split(gk_csr_t *mat, int *color)
     MAKECSR(j, nrows, smats[i]->rowptr);
 
   for (i=0; i<ncolors; i++) {
-    smats[i]->rowind = gk_imalloc(smats[i]->rowptr[nrows], "gk_csr_Split: smats[i]->rowind"); 
-    smats[i]->rowval = gk_fmalloc(smats[i]->rowptr[nrows], "gk_csr_Split: smats[i]->rowval"); 
+    if (rowind != NULL)
+      smats[i]->rowind = (int32_t *)gk_csr_MallocNoSignal(
+          (size_t)smats[i]->rowptr[nrows]*sizeof(int32_t),
+          &allocation_failed);
+    if (rowval != NULL)
+      smats[i]->rowval = (float *)gk_csr_MallocNoSignal(
+          (size_t)smats[i]->rowptr[nrows]*sizeof(float),
+          &allocation_failed);
+    if (allocation_failed)
+      goto allocation_failure;
   }
 
   for (i=0; i<nrows; i++) {
     for (j=rowptr[i]; j<rowptr[i+1]; j++) {
       smats[color[j]]->rowind[smats[color[j]]->rowptr[i]] = rowind[j];
-      smats[color[j]]->rowval[smats[color[j]]->rowptr[i]] = rowval[j];
+      if (rowval != NULL)
+        smats[color[j]]->rowval[smats[color[j]]->rowptr[i]] = rowval[j];
       smats[color[j]]->rowptr[i]++;
     }
   }
@@ -353,6 +679,23 @@ gk_csr_t **gk_csr_Split(gk_csr_t *mat, int *color)
     SHIFTCSR(j, nrows, smats[i]->rowptr);
 
   return smats;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  if (smats != NULL) {
+    for (i=0; i<ncolors; i++)
+      gk_csr_Free(&smats[i]);
+    gk_free((void **)&smats, LTERM);
+  }
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  gk_errexit(allocation_failed || saved_errno == ENOMEM ||
+      saved_errno == EOVERFLOW ? SIGMEM : SIGERR,
+      "Failed to split a matrix.\n");
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  return NULL;
 }
 
 
@@ -366,11 +709,23 @@ gk_csr_t **gk_csr_Split(gk_csr_t *mat, int *color)
 /**************************************************************************/
 int gk_csr_DetermineFormat(char *filename, int format)
 {
+  char *extension, *separator, *backslash;
+
   if (format != GK_CSR_FMT_AUTO)
     return format;
 
+  if (filename == NULL)
+    return GK_CSR_FMT_CSR;
+
   format = GK_CSR_FMT_CSR;
-  char *extension = gk_getextname(filename);
+  extension = strrchr(filename, '.');
+  separator = strrchr(filename, '/');
+  backslash = strrchr(filename, '\\');
+  if (backslash != NULL && (separator == NULL || separator < backslash))
+    separator = backslash;
+  if (extension == NULL || (separator != NULL && extension < separator))
+    return format;
+  extension++;
 
   if (!strcmp(extension, "csr"))
     format = GK_CSR_FMT_CSR;
@@ -387,149 +742,577 @@ int gk_csr_DetermineFormat(char *filename, int format)
   else if (!strcmp(extension, "bijv"))
     format = GK_CSR_FMT_BIJV;
 
-  gk_free((void **)&extension, LTERM);
-
   return format;
 }
 
 
+/*************************************************************************/
+/*! Allocates tracked reader storage without raising a signal.
+
+    The caller can close its stream and release earlier allocations before
+    reporting the memory failure through GKlib's configured error mechanism.
+*/
+/*************************************************************************/
+static void *gk_csr_MallocNoSignal(size_t nbytes, int *r_failed)
+{
+  void *ptr;
+
+  if (*r_failed)
+    return NULL;
+
+  ptr = gk_malloc_nosignal(nbytes);
+  if (ptr == NULL)
+    *r_failed = 1;
+  return ptr;
+}
+
+
+/*************************************************************************/
+/*! Grows tracked reader storage without raising a signal. */
+/*************************************************************************/
+static void *gk_csr_ReallocNoSignal(void *oldptr, size_t nbytes, int *r_failed)
+{
+  void *ptr;
+
+  if (*r_failed)
+    return NULL;
+
+  ptr = gk_realloc_nosignal(oldptr, nbytes);
+  if (ptr == NULL)
+    *r_failed = 1;
+  return ptr;
+}
+
+
+/*************************************************************************/
+/*! Creates an empty reader matrix without raising a signal. */
+/*************************************************************************/
+static gk_csr_t *gk_csr_CreateNoSignal(int *r_failed)
+{
+  gk_csr_t *mat;
+
+  mat = (gk_csr_t *)gk_csr_MallocNoSignal(sizeof(gk_csr_t), r_failed);
+  if (mat != NULL)
+    gk_csr_Init(mat);
+  return mat;
+}
+
+
+/*************************************************************************/
+/*! Reads and validates one binary row- or column-oriented CSR matrix.
+
+    The file byte budget, dimensions, pointer monotonicity, indices, values,
+    short reads, and close operation are checked before ownership is committed
+    to the returned matrix. A failure closes the stream and releases every
+    partially allocated array before it is reported.
+*/
+/*************************************************************************/
+static gk_csr_t *gk_csr_ReadBinary(char *filename, int byrow, int readvals)
+{
+  int32_t i, nrows=0, ncols=0, dimension=0, other_dimension=0;
+  int allocation_failed=0, failed=0, saved_errno=0;
+  size_t element_bytes, fsize=0, pointer_count=0, index_count=0, required=0;
+  ssize_t *pointers=NULL;
+  int32_t *indices=NULL;
+  float *values=NULL;
+  FILE *fpin=NULL;
+  gk_csr_t *mat=NULL;
+
+  if (filename == NULL) {
+    failed = 1;
+    saved_errno = EINVAL;
+  }
+  if (!failed) {
+    mat = gk_csr_CreateNoSignal(&allocation_failed);
+    if (mat == NULL) {
+      failed = 1;
+      saved_errno = errno != 0 ? errno : ENOMEM;
+    }
+  }
+
+  if (!failed) {
+    fpin = fopen(filename, "rb");
+    if (fpin == NULL) {
+      failed = 1;
+      saved_errno = errno != 0 ? errno : EIO;
+    }
+  }
+  if (!failed && !gk_stream_file_size(fpin, &fsize)) {
+    failed = 1;
+    saved_errno = errno != 0 ? errno : EIO;
+  }
+
+  if (!failed &&
+      (fread(&nrows, sizeof(int32_t), 1, fpin) != 1 ||
+       fread(&ncols, sizeof(int32_t), 1, fpin) != 1)) {
+    failed = 1;
+    saved_errno = ferror(fpin) ? (errno != 0 ? errno : EIO) : EINVAL;
+  }
+  if (!failed && (nrows < 0 || ncols < 0)) {
+    failed = 1;
+    saved_errno = EINVAL;
+  }
+
+  if (!failed) {
+    dimension = byrow ? nrows : ncols;
+    other_dimension = byrow ? ncols : nrows;
+    pointer_count = (size_t)dimension+1;
+    if (pointer_count > SIZE_MAX/sizeof(ssize_t) ||
+        2*sizeof(int32_t) > fsize ||
+        pointer_count*sizeof(ssize_t) > fsize-2*sizeof(int32_t)) {
+      failed = 1;
+      saved_errno = pointer_count > SIZE_MAX/sizeof(ssize_t) ?
+          EOVERFLOW : EINVAL;
+    }
+  }
+
+  if (!failed) {
+    pointers = (ssize_t *)gk_csr_MallocNoSignal(
+        pointer_count*sizeof(ssize_t), &allocation_failed);
+    if (pointers == NULL) {
+      failed = 1;
+      saved_errno = errno != 0 ? errno : ENOMEM;
+    }
+    else if (fread(pointers, sizeof(ssize_t), pointer_count, fpin) !=
+             pointer_count) {
+      failed = 1;
+      saved_errno = ferror(fpin) ? (errno != 0 ? errno : EIO) : EINVAL;
+    }
+  }
+  if (!failed && pointers[0] != 0) {
+    failed = 1;
+    saved_errno = EINVAL;
+  }
+  if (!failed) {
+    for (i=0; i<dimension; i++) {
+      if (pointers[i] < 0 || pointers[i] > pointers[i+1]) {
+        failed = 1;
+        saved_errno = EINVAL;
+        break;
+      }
+    }
+  }
+
+  if (!failed) {
+    if (pointers[dimension] < 0 ||
+        (uintmax_t)pointers[dimension] > (uintmax_t)SIZE_MAX) {
+      failed = 1;
+      saved_errno = EINVAL;
+    }
+    else
+      index_count = (size_t)pointers[dimension];
+  }
+  if (!failed) {
+    required = 2*sizeof(int32_t)+pointer_count*sizeof(ssize_t);
+    element_bytes = sizeof(int32_t)+(readvals ? sizeof(float) : 0);
+    if (index_count > (SIZE_MAX-required)/element_bytes ||
+        required+index_count*element_bytes != fsize) {
+      failed = 1;
+      saved_errno = index_count > (SIZE_MAX-required)/element_bytes ?
+          EOVERFLOW : EINVAL;
+    }
+  }
+
+  if (!failed) {
+    indices = (int32_t *)gk_csr_MallocNoSignal(
+        index_count*sizeof(int32_t), &allocation_failed);
+    if (indices == NULL) {
+      failed = 1;
+      saved_errno = errno != 0 ? errno : ENOMEM;
+    }
+    else if (fread(indices, sizeof(int32_t), index_count, fpin) !=
+             index_count) {
+      failed = 1;
+      saved_errno = ferror(fpin) ? (errno != 0 ? errno : EIO) : EINVAL;
+    }
+  }
+  if (!failed) {
+    size_t j;
+    for (j=0; j<index_count; j++) {
+      if (indices[j] < 0 || indices[j] >= other_dimension) {
+        failed = 1;
+        saved_errno = EINVAL;
+        break;
+      }
+    }
+  }
+
+  if (!failed && readvals) {
+    size_t j;
+
+    values = (float *)gk_csr_MallocNoSignal(index_count*sizeof(float),
+        &allocation_failed);
+    if (values == NULL) {
+      failed = 1;
+      saved_errno = errno != 0 ? errno : ENOMEM;
+    }
+    else if (fread(values, sizeof(float), index_count, fpin) != index_count) {
+      failed = 1;
+      saved_errno = ferror(fpin) ? (errno != 0 ? errno : EIO) : EINVAL;
+    }
+    if (!failed) {
+      for (j=0; j<index_count; j++) {
+        if (!isfinite(values[j])) {
+          failed = 1;
+          saved_errno = EINVAL;
+          break;
+        }
+      }
+    }
+  }
+  if (!failed && fgetc(fpin) != EOF) {
+    failed = 1;
+    saved_errno = EINVAL;
+  }
+  if (!failed && ferror(fpin)) {
+    failed = 1;
+    saved_errno = errno != 0 ? errno : EIO;
+  }
+  if (fpin != NULL) {
+    if (fclose(fpin) != 0 && !failed) {
+      failed = 1;
+      saved_errno = errno != 0 ? errno : EIO;
+    }
+    fpin = NULL;
+  }
+
+  if (failed) {
+    if (saved_errno == 0)
+      saved_errno = allocation_failed ? ENOMEM : EIO;
+    gk_free((void **)&pointers, &indices, &values, LTERM);
+    gk_csr_Free(&mat);
+    errno = saved_errno;
+    if (allocation_failed || saved_errno == ENOMEM ||
+        saved_errno == EOVERFLOW) {
+      gk_errexit(SIGMEM, "Memory allocation failed while reading %s.",
+                 filename != NULL ? filename : "(null)");
+      errno = saved_errno;
+      return NULL;
+    }
+    gk_errexit(SIGERR, "Invalid or truncated binary CSR file %s.",
+               filename != NULL ? filename : "(null)");
+    errno = saved_errno;
+    return NULL;
+  }
+
+  mat->nrows = nrows;
+  mat->ncols = ncols;
+  if (byrow) {
+    mat->rowptr = pointers;
+    mat->rowind = indices;
+    mat->rowval = values;
+  }
+  else {
+    mat->colptr = pointers;
+    mat->colind = indices;
+    mat->colval = values;
+  }
+  return mat;
+}
+
+
+/*************************************************************************/
+/*! Releases a partially read text matrix and reports an input failure.
+
+    The stream is closed before signaling, and the gk_getline() buffer is
+    released with free() according to its public ownership contract.
+*/
+/*************************************************************************/
+static gk_csr_t *gk_csr_TextReadError(FILE *fpin, char *line,
+    gk_csr_t *mat, char *filename)
+{
+  int saved_errno;
+
+  if (fpin != NULL && ferror(fpin))
+    saved_errno = errno != 0 ? errno : EIO;
+  else if (fpin == NULL && errno != 0)
+    saved_errno = errno;
+  else if (errno == EOVERFLOW)
+    saved_errno = EOVERFLOW;
+  else
+    saved_errno = EINVAL;
+
+  if (fpin != NULL)
+    fclose(fpin);
+  free(line);
+  gk_csr_Free(&mat);
+  errno = saved_errno;
+  gk_errexit(saved_errno == ENOMEM || saved_errno == EOVERFLOW ?
+             SIGMEM : SIGERR,
+             "Invalid or truncated CSR file %s.",
+             filename != NULL ? filename : "(null)");
+  errno = saved_errno;
+  return NULL;
+}
+
+
+/*************************************************************************/
+/*! Cleans up a text reader before reporting an allocation failure. */
+/*************************************************************************/
+static gk_csr_t *gk_csr_TextAllocationError(FILE *fpin, char *line,
+    gk_csr_t *mat, char *filename)
+{
+  int saved_errno=errno != 0 ? errno : ENOMEM;
+
+  if (fpin != NULL)
+    fclose(fpin);
+  free(line);
+  gk_csr_Free(&mat);
+  errno = saved_errno;
+  gk_errexit(SIGMEM, "Memory allocation failed while reading %s.",
+             filename != NULL ? filename : "(null)");
+  errno = saved_errno;
+  return NULL;
+}
+
+
+/*************************************************************************/
+/*! Parses a bounded list of complete unsigned decimal header fields. */
+/*************************************************************************/
+static int gk_csr_ParseHeader(char *line, size_t *values, size_t minimum,
+    size_t maximum, size_t *count)
+{
+  char *cursor=line, *end;
+  uintmax_t value;
+
+  *count = 0;
+  while (1) {
+    while (isspace((unsigned char)*cursor))
+      cursor++;
+    if (*cursor == '\0')
+      return *count >= minimum;
+    if (*count == maximum || *cursor == '-')
+      return 0;
+    errno = 0;
+    value = strtoumax(cursor, &end, 10);
+    if (end == cursor || errno == ERANGE || value > SIZE_MAX ||
+        (*end != '\0' && !isspace((unsigned char)*end)))
+      return 0;
+    values[(*count)++] = (size_t)value;
+    cursor = end;
+  }
+}
+
+
+/*************************************************************************/
+/*! Parses one complete whitespace-delimited int32_t field. */
+/*************************************************************************/
+static int gk_csr_ParseI32(char **cursor, int32_t *value)
+{
+  char *end;
+  intmax_t parsed;
+
+  while (isspace((unsigned char)**cursor))
+    (*cursor)++;
+  errno = 0;
+  parsed = strtoimax(*cursor, &end, 10);
+  if (end == *cursor || errno == ERANGE ||
+      parsed < INT32_MIN || parsed > INT32_MAX ||
+      (*end != '\0' && !isspace((unsigned char)*end)))
+    return 0;
+  *cursor = end;
+  *value = (int32_t)parsed;
+  return 1;
+}
+
+
+/*************************************************************************/
+/*! Parses one finite, complete whitespace-delimited float field. */
+/*************************************************************************/
+static int gk_csr_ParseFloat(char **cursor, float *value)
+{
+  char *end;
+  float parsed;
+
+  while (isspace((unsigned char)**cursor))
+    (*cursor)++;
+  errno = 0;
+  parsed = strtof(*cursor, &end);
+  if (end == *cursor || errno == ERANGE || !isfinite(parsed) ||
+      (*end != '\0' && !isspace((unsigned char)*end)))
+    return 0;
+  *cursor = end;
+  *value = parsed;
+  return 1;
+}
+
+
+/*************************************************************************/
+/*! Returns true when a CSR record contains no unparsed fields. */
+/*************************************************************************/
+static int gk_csr_EndRecord(char *cursor)
+{
+  while (isspace((unsigned char)*cursor))
+    cursor++;
+  return *cursor == '\0';
+}
+
+
 /**************************************************************************/
-/*! Reads a CSR matrix from the supplied file and stores it the matrix's 
-    forward structure.
+/*! Reads a CSR matrix from the supplied file and stores its forward view.
+
     \param filename is the file that stores the data.
-    \param format is either GK_CSR_FMT_METIS, GK_CSR_FMT_CLUTO, 
-           GK_CSR_FMT_CSR, GK_CSR_FMT_BINROW, GK_CSR_FMT_BINCOL 
-           specifying the type of the input format. 
-           The GK_CSR_FMT_CSR does not contain a header
-           line, whereas the GK_CSR_FMT_BINROW is a binary format written 
-           by gk_csr_Write() using the same format specifier.
-    \param readvals is either 1 or 0, indicating if the CSR file contains
-           values or it does not. It only applies when GK_CSR_FMT_CSR is
-           used.
-    \param numbering is either 1 or 0, indicating if the numbering of the 
-           indices start from 1 or 0, respectively. If they start from 1, 
-           they are automatically decreamented during input so that they
-           will start from 0. It only applies when GK_CSR_FMT_CSR is
-           used.
-    \returns the matrix that was read.
+    \param format is GK_CSR_FMT_METIS, GK_CSR_FMT_CLUTO, GK_CSR_FMT_CSR,
+           GK_CSR_FMT_BINROW, GK_CSR_FMT_BINCOL, GK_CSR_FMT_IJV, or
+           GK_CSR_FMT_BIJV.
+    \param readvals indicates whether applicable text and binary formats
+           contain values.
+    \param numbering is 1 for one-based CSR/IJV indices and 0 for zero-based
+           indices. One-based indices are normalized during input.
+    \returns the matrix that was read, or NULL after complete cleanup when
+             input validation or a resource operation fails.
 */
 /**************************************************************************/
 gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
 {
-  ssize_t i, k, l;
-  size_t nfields, nrows, ncols, nnz, fmt, ncon;
-  size_t lnlen;
-  ssize_t *rowptr;
-  int *rowind, *iinds, *jinds, ival;
-  float *rowval=NULL, *vals, fval;
-  int readsizes, readwgts;
+  ssize_t i, k, l, line_status;
+  int allocation_failed=0, saved_errno=0;
+  size_t file_size=0;
+  long parsed;
+  size_t fields[4], input_ncols=0, nfields, nrows, ncols, nnz, fmt, ncon;
+  size_t lnlen=0, rowcap=0, nnzcap=0, newcap, edgecap=0;
+  ssize_t *rowptr=NULL, *newrowptr=NULL;
+  int32_t *rowind=NULL, *newrowind=NULL, *iinds=NULL, *jinds=NULL, ival;
+  float *rowval=NULL, *newrowval=NULL, *vals=NULL, fval;
+  int readsizes, readwgts, dynamic_rows=0;
   char *line=NULL, *head, *tail, fmtstr[256];
-  FILE *fpin;
+  FILE *fpin=NULL;
   gk_csr_t *mat=NULL;
 
+  if (filename == NULL) {
+    errno = EINVAL;
+    gk_errexit(SIGERR, "File (null) does not exist!\n");
+    errno = EINVAL;
+    return NULL;
+  }
   format = gk_csr_DetermineFormat(filename, format);
-
-  if (!gk_fexists(filename)) 
-    gk_errexit(SIGERR, "File %s does not exist!\n", filename);
 
   switch (format) {
     case GK_CSR_FMT_BINROW:
-      mat = gk_csr_Create();
-
-      fpin = gk_fopen(filename, "rb", "gk_csr_Read: fpin");
-      if (fread(&(mat->nrows), sizeof(int32_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the nrows from file %s!\n", filename);
-      if (fread(&(mat->ncols), sizeof(int32_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the ncols from file %s!\n", filename);
-      mat->rowptr = gk_zmalloc(mat->nrows+1, "gk_csr_Read: rowptr");
-      if (fread(mat->rowptr, sizeof(ssize_t), mat->nrows+1, fpin) != mat->nrows+1)
-        gk_errexit(SIGERR, "Failed to read the rowptr from file %s!\n", filename);
-      mat->rowind = gk_imalloc(mat->rowptr[mat->nrows], "gk_csr_Read: rowind");
-      if (fread(mat->rowind, sizeof(int32_t), mat->rowptr[mat->nrows], fpin) != mat->rowptr[mat->nrows])
-        gk_errexit(SIGERR, "Failed to read the rowind from file %s!\n", filename);
-      if (readvals == 1) {
-        mat->rowval = gk_fmalloc(mat->rowptr[mat->nrows], "gk_csr_Read: rowval");
-        if (fread(mat->rowval, sizeof(float), mat->rowptr[mat->nrows], fpin) != mat->rowptr[mat->nrows])
-          gk_errexit(SIGERR, "Failed to read the rowval from file %s!\n", filename);
-      }
-
-      gk_fclose(fpin);
-      return mat;
-
-      break;
+      return gk_csr_ReadBinary(filename, 1, readvals == 1);
 
     case GK_CSR_FMT_BINCOL:
-      mat = gk_csr_Create();
-
-      fpin = gk_fopen(filename, "rb", "gk_csr_Read: fpin");
-      if (fread(&(mat->nrows), sizeof(int32_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the nrows from file %s!\n", filename);
-      if (fread(&(mat->ncols), sizeof(int32_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the ncols from file %s!\n", filename);
-      mat->colptr = gk_zmalloc(mat->ncols+1, "gk_csr_Read: colptr");
-      if (fread(mat->colptr, sizeof(ssize_t), mat->ncols+1, fpin) != mat->ncols+1)
-        gk_errexit(SIGERR, "Failed to read the colptr from file %s!\n", filename);
-      mat->colind = gk_imalloc(mat->colptr[mat->ncols], "gk_csr_Read: colind");
-      if (fread(mat->colind, sizeof(int32_t), mat->colptr[mat->ncols], fpin) != mat->colptr[mat->ncols])
-        gk_errexit(SIGERR, "Failed to read the colind from file %s!\n", filename);
-      if (readvals) {
-        mat->colval = gk_fmalloc(mat->colptr[mat->ncols], "gk_csr_Read: colval");
-        if (fread(mat->colval, sizeof(float), mat->colptr[mat->ncols], fpin) != mat->colptr[mat->ncols])
-          gk_errexit(SIGERR, "Failed to read the colval from file %s!\n", filename);
-      }
-
-      gk_fclose(fpin);
-      return mat;
-
-      break;
+      return gk_csr_ReadBinary(filename, 0, readvals != 0);
 
 
     case GK_CSR_FMT_IJV:
-      gk_getfilestats(filename, &nrows, &nnz, NULL, NULL);
-
-      if (readvals == 1 && 3*nrows != nnz)
-        gk_errexit(SIGERR, "Error: The number of numbers (%zd %d) in the input file is not a multiple of 3.\n", nnz, readvals);
-      if (readvals == 0 && 2*nrows != nnz)
-        gk_errexit(SIGERR, "Error: The number of numbers (%zd %d) in the input file is not a multiple of 2.\n", nnz, readvals);
-
-      nnz = nrows;
       numbering = (numbering ? - 1 : 0);
 
-      /* read the data into three arrays */
-      iinds = gk_i32malloc(nnz, "iinds");
-      jinds = gk_i32malloc(nnz, "jinds");
-      vals  = (readvals ? gk_fmalloc(nnz, "vals") : NULL);
-
       fpin = gk_fopen(filename, "r", "gk_csr_Read: fpin");
-      for (nrows=0, ncols=0, i=0; i<nnz; i++) {
-        if (readvals) {
-          if (fscanf(fpin, "%d %d %f", &iinds[i], &jinds[i], &vals[i]) != 3)
-            gk_errexit(SIGERR, "Error: Failed to read (i, j, val) for nnz: %zd.\n", i);
+      if (fpin == NULL) {
+        gk_free((void **)&iinds, &jinds, &vals, LTERM);
+        return NULL;
+      }
+      for (nrows=0, ncols=0, nnz=0;
+           (line_status = gk_getline(&line, &lnlen, fpin)) != -1; ) {
+        head = line;
+        if (memchr(line, '\0', (size_t)line_status) != NULL)
+          goto csr_ijv_failure;
+        while (isspace((unsigned char)*head))
+          head++;
+        if (*head == '\0' || *head == '%')
+          continue;
+        if (nnz == edgecap) {
+          int32_t *newints;
+          float *newfloats;
+          if (edgecap >= (size_t)PTRDIFF_MAX) {
+            errno = EOVERFLOW;
+            goto csr_ijv_failure;
+          }
+          newcap = edgecap == 0 ? 16 :
+                   (edgecap > (size_t)PTRDIFF_MAX/2 ?
+                    (size_t)PTRDIFF_MAX : edgecap*2);
+          if (newcap > SIZE_MAX/sizeof(int32_t)) {
+            errno = EOVERFLOW;
+            goto csr_ijv_allocation_failure;
+          }
+          newints = (int32_t *)gk_csr_ReallocNoSignal(
+              iinds, newcap*sizeof(int32_t), &allocation_failed);
+          if (newints == NULL)
+            goto csr_ijv_allocation_failure;
+          iinds = newints;
+          newints = (int32_t *)gk_csr_ReallocNoSignal(
+              jinds, newcap*sizeof(int32_t), &allocation_failed);
+          if (newints == NULL)
+            goto csr_ijv_allocation_failure;
+          jinds = newints;
+          if (readvals) {
+            if (newcap > SIZE_MAX/sizeof(float)) {
+              errno = EOVERFLOW;
+              goto csr_ijv_allocation_failure;
+            }
+            newfloats = (float *)gk_csr_ReallocNoSignal(
+                vals, newcap*sizeof(float), &allocation_failed);
+            if (newfloats == NULL)
+              goto csr_ijv_allocation_failure;
+            vals = newfloats;
+          }
+          edgecap = newcap;
         }
-        else {
-          if (fscanf(fpin, "%d %d", &iinds[i], &jinds[i]) != 2)
-            gk_errexit(SIGERR, "Error: Failed to read (i, j) value for nnz: %zd.\n", i);
-        }
-        iinds[i] += numbering;
-        jinds[i] += numbering;
+        if (!gk_csr_ParseI32(&head, &iinds[nnz]) ||
+            !gk_csr_ParseI32(&head, &jinds[nnz]) ||
+            (readvals && !gk_csr_ParseFloat(&head, &vals[nnz])) ||
+            !gk_csr_EndRecord(head))
+          goto csr_ijv_failure;
+        if (numbering == -1 &&
+            (iinds[nnz] == INT32_MIN || jinds[nnz] == INT32_MIN))
+          goto csr_ijv_failure;
+        iinds[nnz] += numbering;
+        jinds[nnz] += numbering;
+        if (iinds[nnz] < 0 || jinds[nnz] < 0)
+          goto csr_ijv_failure;
 
-        if (nrows < iinds[i])
-          nrows = iinds[i];
-        if (ncols < jinds[i])
-          ncols = jinds[i];
+        if (nrows < (size_t)iinds[nnz])
+          nrows = iinds[nnz];
+        if (ncols < (size_t)jinds[nnz])
+          ncols = jinds[nnz];
+        nnz++;
+      }
+      if (!feof(fpin) && (errno == ENOMEM || errno == EOVERFLOW))
+        goto csr_ijv_allocation_failure;
+      if (!feof(fpin) || ferror(fpin))
+        goto csr_ijv_failure;
+      if (nnz == 0) {
+        errno = EINVAL;
+        goto csr_ijv_failure;
+      }
+      if (nrows >= INT32_MAX || ncols >= INT32_MAX) {
+        errno = EOVERFLOW;
+        goto csr_ijv_failure;
       }
       nrows++;
       ncols++;
-      gk_fclose(fpin);
+      if (fclose(fpin) != 0) {
+        saved_errno = errno != 0 ? errno : EIO;
+        goto csr_ijv_failure_closed;
+      }
+      fpin = NULL;
+      free(line);
+      line = NULL;
 
       /* convert (i, j, v) into a CSR matrix */
-      mat = gk_csr_Create();
+      mat = gk_csr_CreateNoSignal(&allocation_failed);
+      if (mat == NULL)
+        goto csr_ijv_allocation_failure;
       mat->nrows = nrows;
       mat->ncols = ncols;
-      rowptr = mat->rowptr = gk_zsmalloc(nrows+1, 0, "rowptr");
-      rowind = mat->rowind = gk_i32malloc(nnz, "rowind");
+      if (nrows == SIZE_MAX || nrows+1 > SIZE_MAX/sizeof(ssize_t) ||
+          nnz > SIZE_MAX/sizeof(int32_t) ||
+          (readvals && nnz > SIZE_MAX/sizeof(float))) {
+        errno = EOVERFLOW;
+        allocation_failed = 1;
+        goto csr_ijv_allocation_failure;
+      }
+      rowptr = mat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+          (nrows+1)*sizeof(ssize_t), &allocation_failed);
+      rowind = mat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+          nnz*sizeof(int32_t), &allocation_failed);
       if (readvals)
-        rowval = mat->rowval = gk_fmalloc(nnz, "rowval");
+        rowval = mat->rowval = (float *)gk_csr_MallocNoSignal(
+            nnz*sizeof(float), &allocation_failed);
+      if (rowptr == NULL || rowind == NULL || (readvals && rowval == NULL))
+        goto csr_ijv_allocation_failure;
+      memset(rowptr, 0, (nrows+1)*sizeof(ssize_t));
 
       for (i=0; i<nnz; i++)
         rowptr[iinds[i]]++;
@@ -549,43 +1332,127 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
 
       break;
 
+csr_ijv_failure:
+      saved_errno = fpin != NULL && ferror(fpin) ?
+          (errno != 0 ? errno : EIO) :
+          (errno == EOVERFLOW ? EOVERFLOW : EINVAL);
+      if (fpin != NULL)
+        fclose(fpin);
+csr_ijv_failure_closed:
+      free(line);
+      gk_free((void **)&iinds, &jinds, &vals, LTERM);
+      errno = saved_errno != 0 ? saved_errno : EINVAL;
+      gk_errexit(saved_errno == ENOMEM || saved_errno == EOVERFLOW ?
+                 SIGMEM : SIGERR,
+                 "Invalid or truncated IJV file %s.\n", filename);
+      errno = saved_errno != 0 ? saved_errno : EINVAL;
+      return NULL;
+
+csr_ijv_allocation_failure:
+      saved_errno = errno != 0 ? errno : ENOMEM;
+      if (fpin != NULL)
+        fclose(fpin);
+      free(line);
+      gk_free((void **)&iinds, &jinds, &vals, LTERM);
+      gk_csr_Free(&mat);
+      errno = saved_errno;
+      gk_errexit(SIGMEM, "Memory allocation failed while reading %s.\n",
+                 filename);
+      errno = saved_errno;
+      return NULL;
+
     case GK_CSR_FMT_BIJV:
-      mat = gk_csr_Create();
+      mat = gk_csr_CreateNoSignal(&allocation_failed);
+      if (mat == NULL) {
+        saved_errno = errno != 0 ? errno : ENOMEM;
+        goto bijv_failure_closed;
+      }
 
-      fpin = gk_fopen(filename, "rb", "gk_csr_Read: fpin");
+      fpin = fopen(filename, "rb");
+      if (fpin == NULL) {
+        saved_errno = errno != 0 ? errno : EIO;
+        gk_csr_Free(&mat);
+        errno = saved_errno;
+        gk_errexit(SIGERR, "Failed to open binary IJV file %s.\n", filename);
+        errno = saved_errno;
+        return NULL;
+      }
 
+      if (!gk_stream_file_size(fpin, &file_size)) {
+        saved_errno = errno != 0 ? errno : EIO;
+        goto bijv_failure;
+      }
       if (fread(&(mat->nrows), sizeof(int32_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the nrows from file %s!\n", filename);
+        goto bijv_failure;
       if (fread(&(mat->ncols), sizeof(int32_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the ncols from file %s!\n", filename);
+        goto bijv_failure;
       if (fread(&nnz, sizeof(size_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the nnz from file %s!\n", filename);
+        goto bijv_failure;
       if (fread(&readvals, sizeof(int32_t), 1, fpin) != 1)
-        gk_errexit(SIGERR, "Failed to read the readvals from file %s!\n", filename);
+        goto bijv_failure;
+      if (mat->nrows < 0 || mat->ncols < 0 ||
+          (readvals != 0 && readvals != 1))
+        goto bijv_failure;
+      if ((size_t)mat->nrows+1 > SIZE_MAX/sizeof(ssize_t) ||
+          nnz > (size_t)PTRDIFF_MAX ||
+          nnz > (SIZE_MAX-(2*sizeof(int32_t)+sizeof(size_t)+sizeof(int32_t)))/
+              (2*sizeof(int32_t)+(readvals ? sizeof(float) : 0))) {
+        saved_errno = EOVERFLOW;
+        goto bijv_failure;
+      }
+      if (2*sizeof(int32_t)+sizeof(size_t)+sizeof(int32_t)+
+              nnz*(2*sizeof(int32_t)+(readvals ? sizeof(float) : 0)) !=
+              file_size)
+        goto bijv_failure;
 
       /* read the data into three arrays */
-      iinds = gk_i32malloc(nnz, "iinds");
-      jinds = gk_i32malloc(nnz, "jinds");
-      vals  = (readvals ? gk_fmalloc(nnz, "vals") : NULL);
+      iinds = (int32_t *)gk_csr_MallocNoSignal(nnz*sizeof(int32_t),
+                                      &allocation_failed);
+      jinds = (int32_t *)gk_csr_MallocNoSignal(nnz*sizeof(int32_t),
+                                      &allocation_failed);
+      vals  = (readvals ? (float *)gk_csr_MallocNoSignal(nnz*sizeof(float),
+          &allocation_failed) : NULL);
+      if (iinds == NULL || jinds == NULL || (readvals && vals == NULL)) {
+        saved_errno = errno != 0 ? errno : ENOMEM;
+        goto bijv_failure;
+      }
 
       for (i=0; i<nnz; i++) {
         if (fread(&(iinds[i]), sizeof(int32_t), 1, fpin) != 1)
-          gk_errexit(SIGERR, "Failed to read iinds[i] from file %s!\n", filename);
+          goto bijv_failure;
         if (fread(&(jinds[i]), sizeof(int32_t), 1, fpin) != 1)
-          gk_errexit(SIGERR, "Failed to read jinds[i] from file %s!\n", filename);
+          goto bijv_failure;
         if (readvals) {
           if (fread(&(vals[i]), sizeof(float), 1, fpin) != 1)
-            gk_errexit(SIGERR, "Failed to read vals[i] from file %s!\n", filename);
+            goto bijv_failure;
         }
-        //printf("%d %d\n", iinds[i], jinds[i]);
+        if (iinds[i] < 0 || iinds[i] >= mat->nrows ||
+            jinds[i] < 0 || jinds[i] >= mat->ncols ||
+            (readvals && !isfinite(vals[i])))
+          goto bijv_failure;
       }
-      gk_fclose(fpin);
+      if (fgetc(fpin) != EOF || ferror(fpin))
+        goto bijv_failure;
+      if (fclose(fpin) != 0) {
+        saved_errno = errno != 0 ? errno : EIO;
+        fpin = NULL;
+        goto bijv_failure_closed;
+      }
+      fpin = NULL;
 
       /* convert (i, j, v) into a CSR matrix */
-      rowptr = mat->rowptr = gk_zsmalloc(mat->nrows+1, 0, "rowptr");
-      rowind = mat->rowind = gk_i32malloc(nnz, "rowind");
+      rowptr = mat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+          ((size_t)mat->nrows+1)*sizeof(ssize_t), &allocation_failed);
+      rowind = mat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+          nnz*sizeof(int32_t), &allocation_failed);
       if (readvals)
-        rowval = mat->rowval = gk_fmalloc(nnz, "rowval");
+        rowval = mat->rowval = (float *)gk_csr_MallocNoSignal(
+            nnz*sizeof(float), &allocation_failed);
+      if (rowptr == NULL || rowind == NULL || (readvals && rowval == NULL)) {
+        saved_errno = errno != 0 ? errno : ENOMEM;
+        goto bijv_failure_closed;
+      }
+      memset(rowptr, 0, ((size_t)mat->nrows+1)*sizeof(ssize_t));
 
       for (i=0; i<nnz; i++)
         rowptr[iinds[i]]++;
@@ -605,18 +1472,59 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
 
       break;
 
+bijv_failure:
+      if (saved_errno == 0)
+        saved_errno = fpin != NULL && ferror(fpin) ?
+            (errno != 0 ? errno : EIO) : EINVAL;
+      if (fpin != NULL) {
+        fclose(fpin);
+        fpin = NULL;
+      }
+bijv_failure_closed:
+      if (saved_errno == 0)
+        saved_errno = allocation_failed ? ENOMEM : EIO;
+      gk_free((void **)&iinds, &jinds, &vals, LTERM);
+      gk_csr_Free(&mat);
+      errno = saved_errno;
+      if (allocation_failed || saved_errno == ENOMEM ||
+          saved_errno == EOVERFLOW) {
+        gk_errexit(SIGMEM, "Memory allocation failed while reading %s.\n",
+                   filename != NULL ? filename : "(null)");
+        errno = saved_errno;
+        return NULL;
+      }
+      gk_errexit(SIGERR, "Invalid or truncated binary IJV file %s.\n", filename);
+      errno = saved_errno;
+      return NULL;
+
 
     /* the following are handled by a common input code, that comes after the switch */
 
     case GK_CSR_FMT_CLUTO:
       fpin = gk_fopen(filename, "r", "gk_csr_Read: fpin");
+      if (fpin == NULL)
+        return NULL;
       do {
-        if (gk_getline(&line, &lnlen, fpin) <= 0)
-          gk_errexit(SIGERR, "Premature end of input file: file:%s\n", filename);
+        line_status = gk_getline(&line, &lnlen, fpin);
+        if (line_status == -1 && !feof(fpin) &&
+            (errno == ENOMEM || errno == EOVERFLOW))
+          return gk_csr_TextAllocationError(fpin, line, NULL, filename);
+        if (line_status <= 0 ||
+            memchr(line, '\0', (size_t)line_status) != NULL)
+          return gk_csr_TextReadError(fpin, line, NULL, filename);
       } while (line[0] == '%');
 
-      if (sscanf(line, "%zu %zu %zu", &nrows, &ncols, &nnz) != 3)
-        gk_errexit(SIGERR, "Header line must contain 3 integers.\n");
+      if (!gk_csr_ParseHeader(line, fields, 3, 3, &nfields))
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
+      nrows = fields[0];
+      ncols = fields[1];
+      nnz = fields[2];
+      if (nrows > INT32_MAX || ncols > INT32_MAX ||
+          nnz > (size_t)PTRDIFF_MAX) {
+        errno = EOVERFLOW;
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
+      }
+      input_ncols = ncols;
 
       readsizes = 0;
       readwgts  = 0;
@@ -627,28 +1535,54 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
 
     case GK_CSR_FMT_METIS:
       fpin = gk_fopen(filename, "r", "gk_csr_Read: fpin");
+      if (fpin == NULL)
+        return NULL;
       do {
-        if (gk_getline(&line, &lnlen, fpin) <= 0)
-          gk_errexit(SIGERR, "Premature end of input file: file:%s\n", filename);
+        line_status = gk_getline(&line, &lnlen, fpin);
+        if (line_status == -1 && !feof(fpin) &&
+            (errno == ENOMEM || errno == EOVERFLOW))
+          return gk_csr_TextAllocationError(fpin, line, NULL, filename);
+        if (line_status <= 0 ||
+            memchr(line, '\0', (size_t)line_status) != NULL)
+          return gk_csr_TextReadError(fpin, line, NULL, filename);
       } while (line[0] == '%');
 
       fmt = ncon = 0;
-      nfields = sscanf(line, "%zu %zu %zu %zu", &nrows, &nnz, &fmt, &ncon);
-      if (nfields < 2)
-        gk_errexit(SIGERR, "Header line must contain at least 2 integers (#vtxs and #edges).\n");
+      if (!gk_csr_ParseHeader(line, fields, 2, 4, &nfields))
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
+      nrows = fields[0];
+      nnz = fields[1];
+      if (nfields > 2)
+        fmt = fields[2];
+      if (nfields > 3)
+        ncon = fields[3];
 
       ncols = nrows;
+      if (nrows > INT32_MAX || nnz > (size_t)PTRDIFF_MAX/2) {
+        errno = EOVERFLOW;
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
+      }
       nnz *= 2;
 
-      if (fmt > 111)
-        gk_errexit(SIGERR, "Cannot read this type of file format [fmt=%zu]!\n", fmt);
+      if (fmt > 111 || fmt%10 > 1 || (fmt/10)%10 > 1 || (fmt/100)%10 > 1)
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
 
       sprintf(fmtstr, "%03zu", fmt%1000);
       readsizes = (fmtstr[0] == '1');
       readwgts  = (fmtstr[1] == '1');
       readvals  = (fmtstr[2] == '1');
       numbering = 1;
+      if (nfields == 4 && (ncon == 0 || !readwgts))
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
       ncon      = (ncon == 0 ? 1 : ncon);
+      if (readwgts && ncon != 1)
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
+      input_ncols = nrows;
+      if (ncon > (size_t)PTRDIFF_MAX ||
+          ncon > SIZE_MAX/(nrows == 0 ? 1 : nrows)) {
+        errno = EOVERFLOW;
+        return gk_csr_TextReadError(fpin, line, NULL, filename);
+      }
 
       break;
 
@@ -656,45 +1590,105 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
       readsizes = 0;
       readwgts  = 0;
 
-      gk_getfilestats(filename, &nrows, &nnz, NULL, NULL);
-
-      if (readvals == 1 && nnz%2 == 1)
-        gk_errexit(SIGERR, "Error: The number of numbers (%zd %d) in the input file is not even.\n", nnz, readvals);
-      if (readvals == 1)
-        nnz = nnz/2;
+      nnz = nnzcap = rowcap = 0;
+      nrows = 0;
+      dynamic_rows = 1;
       fpin = gk_fopen(filename, "r", "gk_csr_Read: fpin");
+      if (fpin == NULL)
+        return NULL;
 
       break;
 
     default:
+      errno = EINVAL;
       gk_errexit(SIGERR, "Unknown csr format.\n");
+      errno = EINVAL;
       return NULL;
   }
 
-  mat = gk_csr_Create();
+  nnzcap = nnz;
+  mat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (mat == NULL)
+    return gk_csr_TextAllocationError(fpin, line, NULL, filename);
+
+  if (!dynamic_rows)
+    rowcap = nrows;
+  if (nrows > INT32_MAX || nnz > (size_t)PTRDIFF_MAX || rowcap == SIZE_MAX ||
+      nrows == SIZE_MAX || (readwgts && nrows != 0 && ncon > SIZE_MAX/nrows) ||
+      rowcap+1 > SIZE_MAX/sizeof(ssize_t) ||
+      nnz > SIZE_MAX/sizeof(int32_t) ||
+      (readvals != 2 && nnz > SIZE_MAX/sizeof(float)) ||
+      (readsizes && nrows > SIZE_MAX/sizeof(float)) ||
+      (readwgts && nrows*ncon > SIZE_MAX/sizeof(float))) {
+    errno = EOVERFLOW;
+    return gk_csr_TextReadError(fpin, line, mat, filename);
+  }
 
   mat->nrows = nrows;
 
-  rowptr = mat->rowptr = gk_zmalloc(nrows+1, "gk_csr_Read: rowptr");
-  rowind = mat->rowind = gk_imalloc(nnz, "gk_csr_Read: rowind");
+  rowptr = mat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+      (rowcap+1)*sizeof(ssize_t), &allocation_failed);
+  rowind = mat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+      nnz*sizeof(int32_t), &allocation_failed);
   if (readvals != 2)
-    rowval = mat->rowval = gk_fsmalloc(nnz, 1.0, "gk_csr_Read: rowval");
+    rowval = mat->rowval = (float *)gk_csr_MallocNoSignal(
+        nnz*sizeof(float), &allocation_failed);
 
   if (readsizes)
-    mat->rsizes = gk_fsmalloc(nrows, 0.0, "gk_csr_Read: rsizes");
+    mat->rsizes = (float *)gk_csr_MallocNoSignal(
+        nrows*sizeof(float), &allocation_failed);
 
   if (readwgts)
-    mat->rwgts = gk_fsmalloc(nrows*ncon, 0.0, "gk_csr_Read: rwgts");
+    mat->rwgts = (float *)gk_csr_MallocNoSignal(
+        nrows*ncon*sizeof(float), &allocation_failed);
+  if (rowptr == NULL || rowind == NULL ||
+      (readvals != 2 && rowval == NULL) ||
+      (readsizes && mat->rsizes == NULL) ||
+      (readwgts && mat->rwgts == NULL))
+    return gk_csr_TextAllocationError(fpin, line, mat, filename);
+  if (readvals != 2)
+    gk_fset(nnz, 1.0, rowval);
+  if (readsizes)
+    gk_fset(nrows, 0.0, mat->rsizes);
+  if (readwgts)
+    gk_fset(nrows*ncon, 0.0, mat->rwgts);
 
   /*----------------------------------------------------------------------
    * Read the sparse matrix file
    *---------------------------------------------------------------------*/
   numbering = (numbering ? -1 : 0);
-  for (ncols=0, rowptr[0]=0, k=0, i=0; i<nrows; i++) {
+  for (ncols=0, rowptr[0]=0, k=0, i=0; dynamic_rows || i<nrows; i++) {
     do {
-      if (gk_getline(&line, &lnlen, fpin) == -1)
-        gk_errexit(SIGERR, "Premature end of input file: file while reading row %d\n", i);
+      line_status = gk_getline(&line, &lnlen, fpin);
+      if (line_status == -1) {
+        if (!feof(fpin) && (errno == ENOMEM || errno == EOVERFLOW))
+          return gk_csr_TextAllocationError(fpin, line, mat, filename);
+        if (dynamic_rows && feof(fpin))
+          goto csr_text_done;
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      }
+      if (memchr(line, '\0', (size_t)line_status) != NULL)
+        return gk_csr_TextReadError(fpin, line, mat, filename);
     } while (line[0] == '%');
+
+    if ((size_t)i == rowcap) {
+      if ((size_t)i >= INT32_MAX) {
+        errno = EOVERFLOW;
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      }
+      newcap = rowcap == 0 ? 1 :
+               (rowcap > (size_t)INT32_MAX/2 ? INT32_MAX : rowcap*2);
+      if (newcap == SIZE_MAX || newcap+1 > SIZE_MAX/sizeof(ssize_t)) {
+        errno = EOVERFLOW;
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      }
+      newrowptr = (ssize_t *)gk_csr_ReallocNoSignal(
+          rowptr, (newcap+1)*sizeof(ssize_t), &allocation_failed);
+      if (newrowptr == NULL)
+        return gk_csr_TextAllocationError(fpin, line, mat, filename);
+      rowptr = mat->rowptr = newrowptr;
+      rowcap = newcap;
+    }
 
     head = line;
     tail = NULL;
@@ -702,14 +1696,15 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
     /* Read vertex sizes */
     if (readsizes) {
 #ifdef __MSC__
-      mat->rsizes[i] = (float)strtod(head, &tail);
+      errno = 0;
+      fval = (float)strtod(head, &tail);
 #else
-      mat->rsizes[i] = strtof(head, &tail);
+      errno = 0;
+      fval = strtof(head, &tail);
 #endif
-      if (tail == head)
-        gk_errexit(SIGERR, "The line for vertex %zd does not have size information\n", i+1);
-      if (mat->rsizes[i] < 0)
-        errexit("The size for vertex %zd must be >= 0\n", i+1);
+      if (tail == head || errno == ERANGE || !isfinite(fval) || fval < 0)
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      mat->rsizes[i] = fval;
       head = tail;
     }
 
@@ -717,15 +1712,15 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
     if (readwgts) {
       for (l=0; l<ncon; l++) {
 #ifdef __MSC__
-        mat->rwgts[i*ncon+l] = (float)strtod(head, &tail);
+        errno = 0;
+        fval = (float)strtod(head, &tail);
 #else
-        mat->rwgts[i*ncon+l] = strtof(head, &tail);
+        errno = 0;
+        fval = strtof(head, &tail);
 #endif
-        if (tail == head)
-          errexit("The line for vertex %zd does not have enough weights "
-                  "for the %d constraints.\n", i+1, ncon);
-        if (mat->rwgts[i*ncon+l] < 0)
-          errexit("The weight vertex %zd and constraint %zd must be >= 0\n", i+1, l);
+        if (tail == head || errno == ERANGE || !isfinite(fval) || fval < 0)
+          return gk_csr_TextReadError(fpin, line, mat, filename);
+        mat->rwgts[i*ncon+l] = fval;
         head = tail;
       }
     }
@@ -733,50 +1728,317 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
    
     /* Read the rest of the row */
     while (1) {
-      ival = (int)strtol(head, &tail, 0);
+      errno = 0;
+      parsed = strtol(head, &tail, 10);
       if (tail == head) 
         break;
       head = tail;
+
+      if (errno == ERANGE || parsed < INT32_MIN || parsed > INT32_MAX)
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      if ((size_t)k == nnzcap) {
+        if (!dynamic_rows)
+          return gk_csr_TextReadError(fpin, line, mat, filename);
+        if (nnzcap >= (size_t)PTRDIFF_MAX) {
+          errno = EOVERFLOW;
+          return gk_csr_TextReadError(fpin, line, mat, filename);
+        }
+        newcap = nnzcap == 0 ? 1 :
+                 (nnzcap > (size_t)PTRDIFF_MAX/2 ?
+                  (size_t)PTRDIFF_MAX : nnzcap*2);
+        if (newcap > SIZE_MAX/sizeof(int32_t) ||
+            (readvals != 2 && newcap > SIZE_MAX/sizeof(float))) {
+          errno = EOVERFLOW;
+          return gk_csr_TextReadError(fpin, line, mat, filename);
+        }
+        newrowind = (int32_t *)gk_csr_ReallocNoSignal(
+            rowind, newcap*sizeof(int32_t), &allocation_failed);
+        if (newrowind == NULL)
+          return gk_csr_TextAllocationError(fpin, line, mat, filename);
+        rowind = mat->rowind = newrowind;
+        if (readvals != 2) {
+          newrowval = (float *)gk_csr_ReallocNoSignal(
+              rowval, newcap*sizeof(float), &allocation_failed);
+          if (newrowval == NULL)
+            return gk_csr_TextAllocationError(fpin, line, mat, filename);
+          rowval = mat->rowval = newrowval;
+        }
+        nnzcap = newcap;
+      }
+      ival = (int32_t)parsed;
+      if (numbering == -1 && ival == INT32_MIN)
+        return gk_csr_TextReadError(fpin, line, mat, filename);
       
       if ((rowind[k] = ival + numbering) < 0)
-        gk_errexit(SIGERR, "Error: Invalid column number %d at row %zd.\n", ival, i);
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      if ((format == GK_CSR_FMT_METIS || format == GK_CSR_FMT_CLUTO) &&
+          rowind[k] >= (int32_t)input_ncols)
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      if (format == GK_CSR_FMT_CSR && rowind[k] == INT32_MAX)
+        return gk_csr_TextReadError(fpin, line, mat, filename);
 
       ncols = gk_max(rowind[k], ncols);
 
       if (readvals == 1) {
 #ifdef __MSC__
+        errno = 0;
         fval = (float)strtod(head, &tail);
 #else
-	fval = strtof(head, &tail);
+        errno = 0;
+        fval = strtof(head, &tail);
 #endif
-        if (tail == head)
-          gk_errexit(SIGERR, "Value could not be found for column! Row:%zd, NNZ:%zd\n", i, k);
+        if (tail == head || errno == ERANGE || !isfinite(fval) ||
+            (format == GK_CSR_FMT_METIS && fval <= 0))
+          return gk_csr_TextReadError(fpin, line, mat, filename);
         head = tail;
 
         rowval[k] = fval;
       }
       k++;
     }
+    while (isspace((unsigned char)*head))
+      head++;
+    if (*head != '\0')
+      return gk_csr_TextReadError(fpin, line, mat, filename);
     rowptr[i+1] = k;
   }
 
+csr_text_done:
+  if (dynamic_rows) {
+    nrows = i;
+    mat->nrows = nrows;
+    nnz = k;
+  }
+
   if (format == GK_CSR_FMT_METIS) {
-    ASSERT(ncols+1 == mat->nrows);
     mat->ncols = mat->nrows;
   }
+  else if (format == GK_CSR_FMT_CLUTO) {
+    mat->ncols = (int32_t)input_ncols;
+  }
   else {
-    mat->ncols = ncols+1;
+    mat->ncols = k == 0 ? 0 : ncols+1;
   }
 
-  if (k != nnz)
-    gk_errexit(SIGERR, "gk_csr_Read: Something wrong with the number of nonzeros in "
-                       "the input file. NNZ=%zd, ActualNNZ=%zd.\n", nnz, k);
+  if (!dynamic_rows && k != nnz)
+    return gk_csr_TextReadError(fpin, line, mat, filename);
 
-  gk_fclose(fpin);
+  if (!dynamic_rows) {
+    while ((line_status = gk_getline(&line, &lnlen, fpin)) != -1) {
+      char *extra=line;
+      if (memchr(line, '\0', (size_t)line_status) != NULL)
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+      while (isspace((unsigned char)*extra))
+        extra++;
+      if (*extra != '\0' && *extra != '%')
+        return gk_csr_TextReadError(fpin, line, mat, filename);
+    }
+    if (!feof(fpin) && (errno == ENOMEM || errno == EOVERFLOW))
+      return gk_csr_TextAllocationError(fpin, line, mat, filename);
+    if (!feof(fpin) || ferror(fpin))
+      return gk_csr_TextReadError(fpin, line, mat, filename);
+  }
 
-  gk_free((void **)&line, LTERM);
+  if (fclose(fpin) != 0)
+    return gk_csr_TextReadError(NULL, line, mat, filename);
+
+  free(line);
 
   return mat;
+}
+
+
+/*************************************************************************/
+/*! Writes formatted CSR output and reports whether vfprintf succeeded. */
+/*************************************************************************/
+static int gk_csr_Print(FILE *stream, const char *format, ...)
+{
+  int status;
+  va_list args;
+
+  va_start(args, format);
+  status = vfprintf(stream, format, args);
+  va_end(args);
+  if (status < 0 && errno == 0)
+    errno = EIO;
+  return status >= 0;
+}
+
+
+/*************************************************************************/
+/*! Writes a complete binary item array and detects short writes. */
+/*************************************************************************/
+static int gk_csr_WriteItems(FILE *stream, const void *items, size_t size,
+                             size_t count)
+{
+  if (count == 0 || fwrite(items, size, count, stream) == count)
+    return 1;
+  if (errno == 0)
+    errno = EIO;
+  return 0;
+}
+
+
+/*************************************************************************/
+/*! Validates the matrix view required by a selected writer format.
+
+    The row- or column-oriented CSR pointers, indices, dimensions, and any
+    required floating-point values are checked without modifying the matrix.
+*/
+/*************************************************************************/
+static int gk_csr_ValidateView(gk_csr_t *mat, int byrow, int need_values)
+{
+  int32_t i, dimension, other_dimension;
+  ssize_t j, count, *pointers;
+  int32_t *indices;
+  float *values;
+
+  if (mat == NULL || mat->nrows < 0 || mat->ncols < 0)
+    return 0;
+
+  dimension = byrow ? mat->nrows : mat->ncols;
+  other_dimension = byrow ? mat->ncols : mat->nrows;
+  pointers = byrow ? mat->rowptr : mat->colptr;
+  indices = byrow ? mat->rowind : mat->colind;
+  values = byrow ? mat->rowval : mat->colval;
+  if (pointers == NULL || pointers[0] != 0)
+    return 0;
+  for (i=0; i<dimension; i++) {
+    if (pointers[i] < 0 || pointers[i] > pointers[i+1])
+      return 0;
+  }
+
+  count = pointers[dimension];
+  if (count < 0 || (count > 0 && indices == NULL) ||
+      (need_values && count > 0 && values == NULL))
+    return 0;
+  if ((size_t)dimension+1 > SIZE_MAX/sizeof(ssize_t) ||
+      (size_t)count > SIZE_MAX/sizeof(int32_t) ||
+      (need_values && (size_t)count > SIZE_MAX/sizeof(float))) {
+    errno = EOVERFLOW;
+    return -1;
+  }
+  for (j=0; j<count; j++) {
+    if (indices[j] < 0 || indices[j] >= other_dimension ||
+        (need_values && !isfinite(values[j])))
+      return 0;
+  }
+
+  return 1;
+}
+
+
+typedef struct {
+  int32_t source;
+  int32_t target;
+} gk_csr_symmetry_edge_t;
+
+
+/*************************************************************************/
+/*! Orders matrix entries by source and target index. */
+/*************************************************************************/
+static int gk_csr_CompareSymmetryEdges(const void *first,
+    const void *second)
+{
+  const gk_csr_symmetry_edge_t *left=first;
+  const gk_csr_symmetry_edge_t *right=second;
+
+  if (left->source != right->source)
+    return left->source < right->source ? -1 : 1;
+  if (left->target != right->target)
+    return left->target < right->target ? -1 : 1;
+  return 0;
+}
+
+
+/*************************************************************************/
+/*! Finds the first sorted matrix entry matching an ordered index pair. */
+/*************************************************************************/
+static size_t gk_csr_LowerSymmetryEdge(gk_csr_symmetry_edge_t *edges,
+    size_t nedges, int32_t source, int32_t target)
+{
+  gk_csr_symmetry_edge_t key;
+  size_t first=0, length=nedges;
+
+  key.source = source;
+  key.target = target;
+  while (length != 0) {
+    size_t half=length/2;
+    size_t middle=first+half;
+
+    if (gk_csr_CompareSymmetryEdges(edges+middle, &key) < 0) {
+      first = middle+1;
+      length -= half+1;
+    }
+    else {
+      length = half;
+    }
+  }
+
+  return first;
+}
+
+
+/*************************************************************************/
+/*! Validates the reciprocal multiset required by METIS matrix output.
+
+    Duplicate entries must have equally many reverse entries. Self entries
+    are rejected because METIS counts each undirected edge through two
+    adjacency entries. A negative result denotes allocation failure.
+*/
+/*************************************************************************/
+static int gk_csr_ValidateSymmetry(gk_csr_t *mat)
+{
+  gk_csr_symmetry_edge_t *edges;
+  ssize_t edge;
+  size_t i, j, nedges, reverse, reverse_end;
+  int32_t row;
+
+  nedges = (size_t)mat->rowptr[mat->nrows];
+  if (nedges%2 != 0)
+    return 0;
+  if (nedges > SIZE_MAX/sizeof(*edges)) {
+    errno = EOVERFLOW;
+    return -1;
+  }
+  edges = (gk_csr_symmetry_edge_t *)gk_malloc_nosignal(
+      nedges*sizeof(*edges));
+  if (edges == NULL)
+    return -1;
+
+  i = 0;
+  for (row=0; row<mat->nrows; row++) {
+    for (edge=mat->rowptr[row]; edge<mat->rowptr[row+1]; edge++) {
+      edges[i].source = row;
+      edges[i].target = mat->rowind[edge];
+      i++;
+    }
+  }
+  qsort(edges, nedges, sizeof(*edges), gk_csr_CompareSymmetryEdges);
+
+  for (i=0; i<nedges; i=j) {
+    for (j=i+1; j<nedges &&
+         gk_csr_CompareSymmetryEdges(edges+i, edges+j) == 0; j++) {
+    }
+    if (edges[i].source == edges[i].target) {
+      gk_free((void **)&edges, LTERM);
+      return 0;
+    }
+
+    reverse = gk_csr_LowerSymmetryEdge(edges, nedges,
+        edges[i].target, edges[i].source);
+    for (reverse_end=reverse; reverse_end<nedges &&
+         edges[reverse_end].source == edges[i].target &&
+         edges[reverse_end].target == edges[i].source; reverse_end++) {
+    }
+    if (reverse == nedges || reverse_end-reverse != j-i) {
+      gk_free((void **)&edges, LTERM);
+      return 0;
+    }
+  }
+
+  gk_free((void **)&edges, LTERM);
+  return 1;
 }
 
 
@@ -784,146 +2046,243 @@ gk_csr_t *gk_csr_Read(char *filename, int format, int readvals, int numbering)
 /*! Writes the row-based structure of a matrix into a file.
     \param mat is the matrix to be written,
     \param filename is the name of the output file.
-    \param format is one of: GK_CSR_FMT_CLUTO, GK_CSR_FMT_CSR, 
+    \param format is one of: GK_CSR_FMT_CLUTO, GK_CSR_FMT_CSR,
            GK_CSR_FMT_BINROW, GK_CSR_FMT_BINCOL, GK_CSR_FMT_BIJV.
-    \param writevals is either 1 or 0 indicating if the values will be 
+    \param writevals is either 1 or 0 indicating if the values will be
            written or not. This is only applicable when GK_CSR_FMT_CSR
            is used.
-    \param numbering is either 1 or 0 indicating if the internal 0-based 
-           numbering will be shifted by one or not during output. This 
+    \param numbering is either 1 or 0 indicating if the internal 0-based
+           numbering will be shifted by one or not during output. This
            is only applicable when GK_CSR_FMT_CSR is used.
 */
 /**************************************************************************/
 void gk_csr_Write(gk_csr_t *mat, char *filename, int format, int writevals, int numbering)
 {
+  int symmetry, validation;
   ssize_t i, j;
+  int saved_errno=0;
   int32_t edge[2];
-  FILE *fpout;
+  int failed=0;
+  char *tempname=NULL;
+  FILE *fpout=NULL;
 
   format = gk_csr_DetermineFormat(filename, format);
 
+  validation = ((writevals != 0 && writevals != 1) ||
+      (numbering != 0 && numbering != 1)) ? 0 :
+      gk_csr_ValidateView(mat, format != GK_CSR_FMT_BINCOL,
+                          writevals || format == GK_CSR_FMT_CLUTO);
+  if (validation <= 0) {
+    saved_errno = validation < 0 ?
+        (errno != 0 ? errno : EOVERFLOW) : EINVAL;
+    errno = saved_errno;
+    gk_errexit(validation < 0 ? SIGMEM : SIGERR,
+        "Cannot write an invalid CSR structure.\n");
+    errno = saved_errno;
+    return;
+  }
+
   switch (format) {
     case GK_CSR_FMT_METIS:
-      if (mat->nrows != mat->ncols || mat->rowptr[mat->nrows]%2 == 1)
+      if (mat->nrows != mat->ncols) {
+        errno = EINVAL;
         gk_errexit(SIGERR, "METIS output format requires a square symmetric matrix.\n");
+        errno = EINVAL;
+        return;
+      }
+      symmetry = gk_csr_ValidateSymmetry(mat);
+      if (symmetry <= 0) {
+        saved_errno = symmetry < 0 ?
+            (errno != 0 ? errno : ENOMEM) : EINVAL;
+        errno = saved_errno;
+        gk_errexit(symmetry < 0 ? SIGMEM : SIGERR,
+            symmetry < 0 ? "Failed to validate matrix symmetry.\n" :
+            "METIS output format requires a square symmetric matrix.\n");
+        errno = saved_errno;
+        return;
+      }
 
       if (filename)
-        fpout = gk_fopen(filename, "w", "gk_csr_Write: fpout");
+        fpout = gk_open_output_file(filename, "w", &tempname);
       else
         fpout = stdout; 
+      if (fpout == NULL)
+        goto csr_write_open_failure;
 
-      fprintf(fpout, "%d %zd\n", mat->nrows, mat->rowptr[mat->nrows]/2);
+      failed = !gk_csr_Print(fpout, "%d %zd\n", mat->nrows,
+                             mat->rowptr[mat->nrows]/2);
       for (i=0; i<mat->nrows; i++) {
-        for (j=mat->rowptr[i]; j<mat->rowptr[i+1]; j++) 
-          fprintf(fpout, " %d", mat->rowind[j]+1);
-        fprintf(fpout, "\n");
+        for (j=mat->rowptr[i]; !failed && j<mat->rowptr[i+1]; j++)
+          failed = !gk_csr_Print(fpout, " %d", mat->rowind[j]+1);
+        if (!failed)
+          failed = !gk_csr_Print(fpout, "\n");
+        if (failed)
+          break;
       }
-      if (filename)
-        gk_fclose(fpout);
       break;
 
     case GK_CSR_FMT_BINROW:
-      if (filename == NULL)
+      if (filename == NULL) {
+        errno = EINVAL;
         gk_errexit(SIGERR, "The filename parameter cannot be NULL.\n");
-      fpout = gk_fopen(filename, "wb", "gk_csr_Write: fpout");
+        errno = EINVAL;
+        return;
+      }
+      fpout = gk_open_output_file(filename, "wb", &tempname);
+      if (fpout == NULL)
+        goto csr_write_open_failure;
 
-      fwrite(&(mat->nrows), sizeof(int32_t), 1, fpout); 
-      fwrite(&(mat->ncols), sizeof(int32_t), 1, fpout); 
-      fwrite(mat->rowptr, sizeof(ssize_t), mat->nrows+1, fpout); 
-      fwrite(mat->rowind, sizeof(int32_t), mat->rowptr[mat->nrows], fpout); 
-      if (writevals)
-        fwrite(mat->rowval, sizeof(float), mat->rowptr[mat->nrows], fpout); 
-
-      gk_fclose(fpout);
-      return;
-
+      failed = !gk_csr_WriteItems(fpout, &mat->nrows, sizeof(int32_t), 1) ||
+               !gk_csr_WriteItems(fpout, &mat->ncols, sizeof(int32_t), 1) ||
+               !gk_csr_WriteItems(fpout, mat->rowptr, sizeof(ssize_t),
+                                  (size_t)mat->nrows+1) ||
+               !gk_csr_WriteItems(fpout, mat->rowind, sizeof(int32_t),
+                                  (size_t)mat->rowptr[mat->nrows]) ||
+               (writevals &&
+                !gk_csr_WriteItems(fpout, mat->rowval, sizeof(float),
+                                   (size_t)mat->rowptr[mat->nrows]));
       break;
 
     case GK_CSR_FMT_BINCOL:
-      if (filename == NULL)
+      if (filename == NULL) {
+        errno = EINVAL;
         gk_errexit(SIGERR, "The filename parameter cannot be NULL.\n");
-      fpout = gk_fopen(filename, "wb", "gk_csr_Write: fpout");
+        errno = EINVAL;
+        return;
+      }
+      fpout = gk_open_output_file(filename, "wb", &tempname);
+      if (fpout == NULL)
+        goto csr_write_open_failure;
 
-      fwrite(&(mat->nrows), sizeof(int32_t), 1, fpout); 
-      fwrite(&(mat->ncols), sizeof(int32_t), 1, fpout); 
-      fwrite(mat->colptr, sizeof(ssize_t), mat->ncols+1, fpout); 
-      fwrite(mat->colind, sizeof(int32_t), mat->colptr[mat->ncols], fpout); 
-      if (writevals) 
-        fwrite(mat->colval, sizeof(float), mat->colptr[mat->ncols], fpout); 
-
-      gk_fclose(fpout);
-      return;
-
+      failed = !gk_csr_WriteItems(fpout, &mat->nrows, sizeof(int32_t), 1) ||
+               !gk_csr_WriteItems(fpout, &mat->ncols, sizeof(int32_t), 1) ||
+               !gk_csr_WriteItems(fpout, mat->colptr, sizeof(ssize_t),
+                                  (size_t)mat->ncols+1) ||
+               !gk_csr_WriteItems(fpout, mat->colind, sizeof(int32_t),
+                                  (size_t)mat->colptr[mat->ncols]) ||
+               (writevals &&
+                !gk_csr_WriteItems(fpout, mat->colval, sizeof(float),
+                                   (size_t)mat->colptr[mat->ncols]));
       break;
 
     case GK_CSR_FMT_IJV:
-      if (filename == NULL)
+      if (filename == NULL) {
+        errno = EINVAL;
         gk_errexit(SIGERR, "The filename parameter cannot be NULL.\n");
-      fpout = gk_fopen(filename, "w", "gk_csr_Write: fpout");
+        errno = EINVAL;
+        return;
+      }
+      fpout = gk_open_output_file(filename, "w", &tempname);
+      if (fpout == NULL)
+        goto csr_write_open_failure;
 
       numbering = (numbering ? 1 : 0);
       for (i=0; i<mat->nrows; i++) {
         for (j=mat->rowptr[i]; j<mat->rowptr[i+1]; j++) {
           if (writevals)
-            fprintf(fpout, "%zd %d %.8f\n", i+numbering, mat->rowind[j]+numbering, mat->rowval[j]);
+            failed = !gk_csr_Print(fpout, "%zd %d %.8f\n", i+numbering,
+                                   mat->rowind[j]+numbering, mat->rowval[j]);
           else
-            fprintf(fpout, "%zd %d\n", i+numbering, mat->rowind[j]+numbering);
+            failed = !gk_csr_Print(fpout, "%zd %d\n", i+numbering,
+                                   mat->rowind[j]+numbering);
+          if (failed)
+            break;
         }
+        if (failed)
+          break;
       }
-
-      gk_fclose(fpout);
-      return;
-
       break;
 
     case GK_CSR_FMT_BIJV:
-      if (filename == NULL)
+      if (filename == NULL) {
+        errno = EINVAL;
         gk_errexit(SIGERR, "The filename parameter cannot be NULL.\n");
-      fpout = gk_fopen(filename, "wb", "gk_csr_Write: fpout");
+        errno = EINVAL;
+        return;
+      }
+      fpout = gk_open_output_file(filename, "wb", &tempname);
+      if (fpout == NULL)
+        goto csr_write_open_failure;
 
-      fwrite(&(mat->nrows), sizeof(int32_t), 1, fpout); 
-      fwrite(&(mat->ncols), sizeof(int32_t), 1, fpout); 
-      fwrite(&(mat->rowptr[mat->nrows]), sizeof(size_t), 1, fpout); 
-      fwrite(&writevals, sizeof(int32_t), 1, fpout); 
+      failed = !gk_csr_WriteItems(fpout, &mat->nrows, sizeof(int32_t), 1) ||
+               !gk_csr_WriteItems(fpout, &mat->ncols, sizeof(int32_t), 1) ||
+               !gk_csr_WriteItems(fpout, &mat->rowptr[mat->nrows],
+                                  sizeof(size_t), 1) ||
+               !gk_csr_WriteItems(fpout, &writevals, sizeof(int32_t), 1);
 
-      for (i=0; i<mat->nrows; i++) {
-        edge[0] = i;
+      for (i=0; !failed && i<mat->nrows; i++) {
+        edge[0] = (int32_t)i;
         for (j=mat->rowptr[i]; j<mat->rowptr[i+1]; j++) {
           edge[1] = mat->rowind[j];
-          fwrite(edge, sizeof(int32_t), 2, fpout);
-          if (writevals) 
-            fwrite(&(mat->rowval[j]), sizeof(float), 1, fpout);
+          failed = !gk_csr_WriteItems(fpout, edge, sizeof(int32_t), 2) ||
+                   (writevals &&
+                    !gk_csr_WriteItems(fpout, &mat->rowval[j],
+                                       sizeof(float), 1));
+          if (failed)
+            break;
         }
       }
-
-      gk_fclose(fpout);
-      return;
-
       break;
 
-    default:
+    case GK_CSR_FMT_CLUTO:
+    case GK_CSR_FMT_CSR:
       if (filename)
-        fpout = gk_fopen(filename, "w", "gk_csr_Write: fpout");
+        fpout = gk_open_output_file(filename, "w", &tempname);
       else
         fpout = stdout; 
+      if (fpout == NULL)
+        goto csr_write_open_failure;
 
       if (format == GK_CSR_FMT_CLUTO) {
-        fprintf(fpout, "%d %d %zd\n", mat->nrows, mat->ncols, mat->rowptr[mat->nrows]);
+        failed = !gk_csr_Print(fpout, "%d %d %zd\n", mat->nrows,
+                               mat->ncols, mat->rowptr[mat->nrows]);
         writevals = 1;
         numbering = 1;
       }
 
-      for (i=0; i<mat->nrows; i++) {
-        for (j=mat->rowptr[i]; j<mat->rowptr[i+1]; j++) {
-          fprintf(fpout, " %d", mat->rowind[j]+(numbering ? 1 : 0));
-          if (writevals) 
-            fprintf(fpout, " %f", mat->rowval[j]);
+      for (i=0; !failed && i<mat->nrows; i++) {
+        for (j=mat->rowptr[i]; !failed && j<mat->rowptr[i+1]; j++) {
+          failed = !gk_csr_Print(fpout, " %d",
+                                 mat->rowind[j]+(numbering ? 1 : 0));
+          if (!failed && writevals)
+            failed = !gk_csr_Print(fpout, " %f", mat->rowval[j]);
         }
-        fprintf(fpout, "\n");
+        if (!failed)
+          failed = !gk_csr_Print(fpout, "\n");
       }
-      if (filename)
-        gk_fclose(fpout);
+      break;
+
+    default:
+      errno = EINVAL;
+      gk_errexit(SIGERR, "Unknown CSR output format. %d\n", format);
+      errno = EINVAL;
+      return;
   }
+
+  if (!gk_finish_output_file(fpout, &tempname, filename, !failed)) {
+    failed = 1;
+    saved_errno = errno != 0 ? errno : EIO;
+  }
+  if (failed) {
+    if (saved_errno == 0)
+      saved_errno = EIO;
+    errno = saved_errno;
+  }
+  if (failed) {
+    gk_errexit(saved_errno == ENOMEM || saved_errno == EOVERFLOW ?
+        SIGMEM : SIGERR, "Failed to write CSR file %s.\n",
+               filename != NULL ? filename : "<stdout>");
+    errno = saved_errno;
+  }
+  return;
+
+csr_write_open_failure:
+  saved_errno = errno != 0 ? errno : EIO;
+  errno = saved_errno;
+  gk_errexit(saved_errno == ENOMEM || saved_errno == EOVERFLOW ?
+      SIGMEM : SIGERR, "Failed to open CSR output file %s.\n",
+             filename != NULL ? filename : "<stdout>");
+  errno = saved_errno;
 }
 
 
@@ -2106,34 +3465,61 @@ gk_csr_t *gk_csr_Shuffle(gk_csr_t *mat, int what, int symmetric)
 /**************************************************************************/
 gk_csr_t *gk_csr_Transpose(gk_csr_t *mat)
 {
-  int nrows, ncols;
-  ssize_t *colptr;
-  int32_t *colind;
-  float *colval;
-  gk_csr_t *nmat;
+  int32_t i, column;
+  ssize_t j, nnz, rownnz, colnnz;
+  int allocation_failed=0, saved_errno=0;
+  size_t nrows;
+  gk_csr_t *nmat=NULL;
 
-  colptr = mat->colptr;
-  colind = mat->colind;
-  colval = mat->colval;
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
+  }
+  if (mat->rowptr == NULL) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  nnz = rownnz;
+  nrows = (size_t)mat->ncols;
+  nmat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (nmat == NULL)
+    goto allocation_failure;
+  nmat->nrows = mat->ncols;
+  nmat->ncols = mat->nrows;
+  nmat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+      (nrows+1)*sizeof(ssize_t), &allocation_failed);
+  nmat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+      (size_t)nnz*sizeof(int32_t), &allocation_failed);
+  if (mat->rowval)
+    nmat->rowval = (float *)gk_csr_MallocNoSignal(
+        (size_t)nnz*sizeof(float), &allocation_failed);
+  if (allocation_failed)
+    goto allocation_failure;
+  memset(nmat->rowptr, 0, (nrows+1)*sizeof(ssize_t));
 
-  mat->colptr = NULL;
-  mat->colind = NULL;
-  mat->colval = NULL;
-
-  gk_csr_CreateIndex(mat, GK_CSR_COL);
-
-  nmat = gk_csr_Create();
-  nmat->nrows  = mat->ncols;
-  nmat->ncols  = mat->nrows;
-  nmat->rowptr = mat->colptr;
-  nmat->rowind = mat->colind;
-  nmat->rowval = mat->colval;
-
-  mat->colptr = colptr;
-  mat->colind = colind;
-  mat->colval = colval;
+  for (j=0; j<nnz; j++)
+    nmat->rowptr[mat->rowind[j]]++;
+  MAKECSR(i, mat->ncols, nmat->rowptr);
+  for (i=0; i<mat->nrows; i++) {
+    for (j=mat->rowptr[i]; j<mat->rowptr[i+1]; j++) {
+      column = mat->rowind[j];
+      nmat->rowind[nmat->rowptr[column]] = i;
+      if (mat->rowval)
+        nmat->rowval[nmat->rowptr[column]] = mat->rowval[j];
+      nmat->rowptr[column]++;
+    }
+  }
+  SHIFTCSR(i, mat->ncols, nmat->rowptr);
 
   return nmat;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  return gk_csr_TransformError(&nmat, saved_errno,
+      allocation_failed, "transpose");
 
 }
 
@@ -2646,16 +4032,22 @@ int gk_csr_GetSimilarRows(gk_csr_t *mat, int nqterms, int *qind,
 /**************************************************************************/
 gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op)
 {
-  ssize_t i, j, k, nnz;
-  int nrows, nadj, hasvals;
-  ssize_t *rowptr, *colptr, *nrowptr;
-  int *rowind, *colind, *nrowind, *marker, *ids;
+  ssize_t i, j, nnz, nadj, nout, nedges, maxedges, position;
+  ssize_t *marker=NULL, *last=NULL, *next=NULL;
+  int32_t nrows;
+  int hasvals, allocation_failed=0, saved_errno=0;
+  ssize_t *rowptr, *colptr=NULL, *nrowptr;
+  int32_t *rowind, *colind=NULL, *nrowind, *ids=NULL;
   float *rowval=NULL, *colval=NULL, *nrowval=NULL, *wgts=NULL;
-  gk_csr_t *nmat;
+  gk_csr_t *nmat=NULL;
 
-  if (mat->nrows != mat->ncols) {
-    fprintf(stderr, "gk_csr_MakeSymmetric: The matrix needs to be square.\n");
-    return NULL;
+  if (mat == NULL || mat->nrows < 0 || mat->ncols < 0 ||
+      mat->nrows != mat->ncols || mat->rowptr == NULL ||
+      mat->rowptr[0] != 0 ||
+      (op != GK_CSR_SYM_SUM && op != GK_CSR_SYM_MIN &&
+       op != GK_CSR_SYM_MAX && op != GK_CSR_SYM_AVG)) {
+    saved_errno = EINVAL;
+    goto failure;
   }
 
   hasvals = (mat->rowval != NULL);
@@ -2665,12 +4057,46 @@ gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op)
   rowind = mat->rowind;
   if (hasvals)
     rowval = mat->rowval;
+  for (i=0; i<nrows; i++) {
+    if (rowptr[i] < 0 || rowptr[i] > rowptr[i+1]) {
+      saved_errno = EINVAL;
+      goto failure;
+    }
+  }
+  nedges = rowptr[nrows];
+  if (nedges < 0 || nedges > PTRDIFF_MAX/2 ||
+      (size_t)nrows+1 > SIZE_MAX/sizeof(ssize_t) ||
+      (size_t)nedges > SIZE_MAX/(2*sizeof(int32_t)) ||
+      (size_t)nedges > SIZE_MAX/(2*sizeof(ssize_t)) ||
+      (hasvals && (size_t)nedges > SIZE_MAX/(2*sizeof(float))) ||
+      (size_t)nrows > SIZE_MAX/sizeof(ssize_t)) {
+    saved_errno = nedges < 0 ? EINVAL : EOVERFLOW;
+    goto failure;
+  }
+  if (nedges > 0 && rowind == NULL) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  for (i=0; i<nedges; i++) {
+    if (rowind[i] < 0 || rowind[i] >= nrows ||
+        (hasvals && !isfinite(rowval[i]))) {
+      saved_errno = EINVAL;
+      goto failure;
+    }
+  }
+  maxedges = 2*nedges;
 
   /* create the column view for efficient processing */
-  colptr = gk_zsmalloc(nrows+1, 0, "colptr");
-  colind = gk_i32malloc(rowptr[nrows], "colind");
+  colptr = (ssize_t *)gk_csr_MallocNoSignal(
+      ((size_t)nrows+1)*sizeof(ssize_t), &allocation_failed);
+  colind = (int32_t *)gk_csr_MallocNoSignal(
+      (size_t)nedges*sizeof(int32_t), &allocation_failed);
   if (hasvals)
-    colval = gk_fmalloc(rowptr[nrows], "colval");
+    colval = (float *)gk_csr_MallocNoSignal(
+        (size_t)nedges*sizeof(float), &allocation_failed);
+  if (colptr == NULL || colind == NULL || (hasvals && colval == NULL))
+    goto allocation_failure;
+  memset(colptr, 0, ((size_t)nrows+1)*sizeof(ssize_t));
 
   for (i=0; i<nrows; i++) {
     for (j=rowptr[i]; j<rowptr[i+1]; j++) 
@@ -2689,20 +4115,40 @@ gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op)
   SHIFTCSR(i, nrows, colptr);
 
 
-  nmat = gk_csr_Create();
+  nmat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (nmat == NULL)
+    goto allocation_failure;
   
   nmat->nrows = mat->nrows;
   nmat->ncols = mat->ncols;
 
-  nrowptr = nmat->rowptr = gk_zmalloc(nrows+1, "gk_csr_MakeSymmetric: nrowptr");
-  nrowind = nmat->rowind = gk_imalloc(2*rowptr[nrows], "gk_csr_MakeSymmetric: nrowind");
+  nrowptr = nmat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+      ((size_t)nrows+1)*sizeof(ssize_t), &allocation_failed);
+  nrowind = nmat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+      (size_t)maxedges*sizeof(int32_t), &allocation_failed);
   if (hasvals)
-    nrowval = nmat->rowval = gk_fmalloc(2*rowptr[nrows], "gk_csr_MakeSymmetric: nrowval");
+    nrowval = nmat->rowval = (float *)gk_csr_MallocNoSignal(
+        (size_t)maxedges*sizeof(float), &allocation_failed);
 
-  marker = gk_ismalloc(nrows, -1, "marker");
-  ids    = gk_imalloc(nrows, "ids");
+  marker = (ssize_t *)gk_csr_MallocNoSignal(
+      (size_t)nrows*sizeof(ssize_t), &allocation_failed);
+  last = (ssize_t *)gk_csr_MallocNoSignal(
+      (size_t)nrows*sizeof(ssize_t), &allocation_failed);
+  next = (ssize_t *)gk_csr_MallocNoSignal(
+      (size_t)maxedges*sizeof(ssize_t), &allocation_failed);
+  ids = (int32_t *)gk_csr_MallocNoSignal(
+      (size_t)maxedges*sizeof(int32_t), &allocation_failed);
   if (hasvals)
-    wgts = gk_fmalloc(nrows, "wgts");
+    wgts = (float *)gk_csr_MallocNoSignal(
+        (size_t)maxedges*sizeof(float), &allocation_failed);
+  if (nrowptr == NULL || nrowind == NULL || marker == NULL || last == NULL ||
+      next == NULL || ids == NULL ||
+      (hasvals && (nrowval == NULL || wgts == NULL)))
+    goto allocation_failure;
+  for (i=0; i<nrows; i++) {
+    marker[i] = -1;
+    last[i] = -1;
+  }
 
   nrowptr[0] = nnz = 0;
   for (i=0; i<nrows; i++) {
@@ -2711,9 +4157,15 @@ gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op)
     for (j=rowptr[i]; j<rowptr[i+1]; j++) {
       ids[nadj] = rowind[j]; 
       if (hasvals)
-        wgts[nadj] = (op == GK_CSR_SYM_AVG ? 0.5*rowval[j] : rowval[j]);
-      marker[rowind[j]] = nadj++;
+        wgts[nadj] = rowval[j];
+      if (marker[rowind[j]] == -1)
+        marker[rowind[j]] = nadj;
+      else
+        next[last[rowind[j]]] = nadj;
+      last[rowind[j]] = nadj;
+      next[nadj++] = -1;
     }
+    nout = nadj;
 
     /* in-edges */
     for (j=colptr[i]; j<colptr[i+1]; j++) {
@@ -2726,36 +4178,47 @@ gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op)
         }
       }
       else {
+        position = marker[colind[j]];
+        marker[colind[j]] = next[position];
+        if (marker[colind[j]] == -1)
+          last[colind[j]] = -1;
+        next[position] = -2;
         if (hasvals) {
           switch (op) {
             case GK_CSR_SYM_MAX:
-              wgts[marker[colind[j]]] = gk_max(colval[j], wgts[marker[colind[j]]]);
+              wgts[position] = gk_max(colval[j], wgts[position]);
               break;
             case GK_CSR_SYM_MIN:
-              wgts[marker[colind[j]]] = gk_min(colval[j], wgts[marker[colind[j]]]);
+              wgts[position] = gk_min(colval[j], wgts[position]);
               break;
             case GK_CSR_SYM_SUM:
-              wgts[marker[colind[j]]] += colval[j];
+              wgts[position] += colval[j];
+              if (!isfinite(wgts[position])) {
+                saved_errno = EOVERFLOW;
+                goto failure;
+              }
               break;
             case GK_CSR_SYM_AVG:
-              wgts[marker[colind[j]]] = 0.5*(wgts[marker[colind[j]]] + colval[j]);
+              wgts[position] = (float)(0.5*((double)wgts[position] +
+                  colval[j]));
               break;
-            default:
-              errexit("Unsupported op for MakeSymmetric!\n");
           }
         }
-        marker[colind[j]] = -1;
       }
     }
 
-    /* go over out edges again to resolve any edges that were not found in the in
-     * edges */
-    for (j=rowptr[i]; j<rowptr[i+1]; j++) {
-      if (marker[rowind[j]] != -1) {
+    /* resolve any out-edges that were not found in the in-edges */
+    for (j=0; j<nout; j++) {
+      if (next[j] != -2) {
         if (op == GK_CSR_SYM_MIN)
-          ids[marker[rowind[j]]] = -1;
-        marker[rowind[j]] = -1;
+          ids[j] = -1;
+        else if (op == GK_CSR_SYM_AVG && hasvals)
+          wgts[j] *= 0.5f;
       }
+    }
+    for (j=rowptr[i]; j<rowptr[i+1]; j++) {
+      marker[rowind[j]] = -1;
+      last[rowind[j]] = -1;
     }
 
     /* put the non '-1' entries in ids[] into i's row */
@@ -2770,9 +4233,25 @@ gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op)
     nrowptr[i+1] = nnz;
   }
 
-  gk_free((void **)&colptr, &colind, &colval, &marker, &ids, &wgts, LTERM);
+  gk_free((void **)&colptr, &colind, &colval, &marker, &last, &next,
+          &ids, &wgts, LTERM);
 
   return nmat;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  gk_free((void **)&colptr, &colind, &colval, &marker, &last, &next,
+          &ids, &wgts, LTERM);
+  gk_csr_Free(&nmat);
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  gk_errexit(allocation_failed || saved_errno == ENOMEM ||
+      saved_errno == EOVERFLOW ? SIGMEM : SIGERR,
+      "Failed to make a symmetric matrix.\n");
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  return NULL;
 }
 
 
@@ -2797,90 +4276,103 @@ gk_csr_t *gk_csr_MakeSymmetric(gk_csr_t *mat, int op)
 int gk_csr_FindConnectedComponents(gk_csr_t *mat, int32_t *cptr, int32_t *cind, 
         int32_t *cids)
 {
-  ssize_t i, ii, j, jj, k, nvtxs, first, last, ntodo, ncmps;
-  ssize_t *xadj;
-  int32_t *adjncy, *pos, *todo;
-  int32_t mustfree_ccsr=0, mustfree_where=0;
+  ssize_t i, j, k, rownnz, colnnz, nvtxs, first, last, ntodo, position;
+  int32_t component, ncmps=0, start;
+  int32_t *work_cptr=NULL, *work_cind=NULL, *work_cids=NULL;
+  int32_t *pos=NULL, *todo=NULL;
+  int allocation_failed=0, saved_errno=0;
+  size_t nvertices;
 
-  if (mat->nrows != mat->ncols) {
-    fprintf(stderr, "gk_csr_FindComponents: The matrix needs to be square.\n");
-    return -1;
+  if ((cptr == NULL) != (cind == NULL)) {
+    saved_errno = EINVAL;
+    goto failure;
   }
-
-  nvtxs  = mat->nrows;
-  xadj   = mat->rowptr;
-  adjncy = mat->rowind;
-
-  /* Deal with NULL supplied cptr/cind vectors */
-  if (cptr == NULL) {
-    cptr = gk_i32malloc(nvtxs+1, "gk_csr_FindComponents: cptr");
-    cind = gk_i32malloc(nvtxs, "gk_csr_FindComponents: cind");
-    mustfree_ccsr = 1;
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
   }
+  if (mat->nrows != mat->ncols || mat->rowptr == NULL) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  nvtxs = mat->nrows;
+  nvertices = (size_t)nvtxs;
+  work_cptr = (int32_t *)gk_csr_MallocNoSignal(
+      (nvertices+1)*sizeof(int32_t), &allocation_failed);
+  work_cind = (int32_t *)gk_csr_MallocNoSignal(
+      nvertices*sizeof(int32_t), &allocation_failed);
+  if (cids != NULL)
+    work_cids = (int32_t *)gk_csr_MallocNoSignal(
+        nvertices*sizeof(int32_t), &allocation_failed);
+  pos = (int32_t *)gk_csr_MallocNoSignal(
+      nvertices*sizeof(int32_t), &allocation_failed);
+  todo = (int32_t *)gk_csr_MallocNoSignal(
+      nvertices*sizeof(int32_t), &allocation_failed);
+  if (allocation_failed)
+    goto allocation_failure;
+  for (i=0; i<nvtxs; i++)
+    pos[i] = todo[i] = (int32_t)i;
 
-  /* The list of vertices that have not been touched yet. 
-     The valid entries are from [0..ntodo). */
-  todo = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "gk_csr_FindComponents: todo"));
-
-  /* For a vertex that has not been visited, pos[i] is the position in the
-     todo list that this vertex is stored. 
-     If a vertex has been visited, pos[i] = -1. */
-  pos = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "gk_csr_FindComponents: pos"));
-
-
-  /* Find the connected componends */
-  ncmps = -1;
-  ntodo = nvtxs;     /* All vertices have not been visited */
-  first = last = 0;  /* Point to the first and last vertices that have been touched
-                        but not explored. 
-                        These vertices are stored in cind[first]...cind[last-1]. */
-
+  ntodo = nvtxs;
+  first = last = 0;
   while (first < last || ntodo > 0) {
-    if (first == last) { /* Find another starting vertex */
-      cptr[++ncmps] = first;  /* Mark the end of the current CC */
-
-      /* put the first vertex in the todo list as the start of the new CC */
-      ASSERT(pos[todo[0]] != -1);
-      cind[last++] = todo[0];  
-
-      pos[todo[0]] = -1;
-      todo[0] = todo[--ntodo];
-      pos[todo[0]] = 0;
+    if (first == last) {
+      work_cptr[ncmps++] = (int32_t)first;
+      start = todo[0];
+      work_cind[last++] = start;
+      pos[start] = -1;
+      ntodo--;
+      if (ntodo > 0) {
+        todo[0] = todo[ntodo];
+        pos[todo[0]] = 0;
+      }
     }
 
-    i = cind[first++];  /* Get the first visited but unexplored vertex */
-
-    for (j=xadj[i]; j<xadj[i+1]; j++) {
-      k = adjncy[j];
+    i = work_cind[first++];
+    for (j=mat->rowptr[i]; j<mat->rowptr[i+1]; j++) {
+      k = mat->rowind[j];
       if (pos[k] != -1) {
-        cind[last++] = k;
-
-        /* Remove k from the todo list and put the last item in the todo 
-           list at the position that k was so that the todo list will be
-           consequtive. The pos[] array is updated accordingly to keep track
-           the location of the vertices in the todo[] list. */
-        todo[pos[k]] = todo[--ntodo];
-        pos[todo[pos[k]]] = pos[k];
+        work_cind[last++] = (int32_t)k;
+        position = pos[k];
         pos[k] = -1;
+        ntodo--;
+        if (position < ntodo) {
+          todo[position] = todo[ntodo];
+          pos[todo[position]] = (int32_t)position;
+        }
       }
     }
   }
-  cptr[++ncmps] = first;
+  work_cptr[ncmps] = (int32_t)first;
 
-  /* see if we need to return cids */
   if (cids != NULL) {
-    for (i=0; i<ncmps; i++) {
-      for (j=cptr[i]; j<cptr[i+1]; j++)
-        cids[cind[j]] = i;
+    for (component=0; component<ncmps; component++) {
+      for (j=work_cptr[component]; j<work_cptr[component+1]; j++)
+        work_cids[work_cind[j]] = component;
     }
+    memcpy(cids, work_cids, nvertices*sizeof(int32_t));
   }
+  if (cptr != NULL) {
+    memcpy(cptr, work_cptr, ((size_t)ncmps+1)*sizeof(int32_t));
+    memcpy(cind, work_cind, nvertices*sizeof(int32_t));
+  }
+  gk_free((void **)&work_cptr, &work_cind, &work_cids, &pos, &todo,
+          LTERM);
+  return ncmps;
 
-  if (mustfree_ccsr)
-    gk_free((void **)&cptr, &cind, LTERM);
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
 
-  gk_free((void **)&pos, &todo, LTERM);
-
-  return (int) ncmps;
+failure:
+  gk_free((void **)&work_cptr, &work_cind, &work_cids, &pos, &todo,
+          LTERM);
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  gk_errexit(allocation_failed || saved_errno == ENOMEM ||
+      saved_errno == EOVERFLOW ? SIGMEM : SIGERR,
+      "Failed to find matrix components.\n");
+  errno = saved_errno != 0 ? saved_errno : EINVAL;
+  return -1;
 }
 
 
@@ -2899,92 +4391,138 @@ int gk_csr_FindConnectedComponents(gk_csr_t *mat, int32_t *cptr, int32_t *cind,
 /**************************************************************************/
 gk_csr_t *gk_csr_ReorderSymmetric(gk_csr_t *mat, int32_t *perm, int32_t *iperm)
 {
-  ssize_t j, jj;
-  ssize_t *rowptr, *nrowptr;
-  int i, k, u, v, nrows;
-  int freeperm=0, freeiperm=0;
-  int32_t *rowind, *nrowind;
-  float *rowval, *nrowval;
-  gk_csr_t *nmat;
+  ssize_t j, jj, rownnz, colnnz;
+  int32_t i, u, v, nrows, *seen=NULL;
+  int32_t *localperm=NULL, *localiperm=NULL;
+  int allocation_failed=0, saved_errno=0;
+  size_t nrows_size;
+  gk_csr_t *nmat=NULL;
 
-  if (mat->nrows != mat->ncols) {
-    fprintf(stderr, "gk_csr_ReorderSymmetric: The matrix needs to be square.\n");
-    return NULL;
+  if (perm == NULL && iperm == NULL) {
+    saved_errno = EINVAL;
+    goto failure;
   }
-
-  if (perm == NULL && iperm == NULL)
-    return NULL;
-
-  nrows  = mat->nrows;
-  rowptr = mat->rowptr;
-  rowind = mat->rowind;
-  rowval = mat->rowval;
-
-  nmat = gk_csr_Create();
-
-  nmat->nrows = nrows;
-  nmat->ncols = nrows;
-
-  nrowptr = nmat->rowptr = gk_zmalloc(nrows+1, "gk_csr_ReorderSymmetric: rowptr");
-  nrowind = nmat->rowind = gk_i32malloc(rowptr[nrows], "gk_csr_ReorderSymmetric: rowind");
-  nrowval = nmat->rowval = gk_fmalloc(rowptr[nrows], "gk_csr_ReorderSymmetric: rowval");
-
-  /* allocate memory for the different structures present in the matrix */
-  if (mat->rlabels)
-    nmat->rlabels = gk_i32malloc(nrows, "gk_csr_ReorderSymmetric: rlabels");
-  if (mat->rmap)
-    nmat->rmap = gk_i32malloc(nrows, "gk_csr_ReorderSymmetric: rmap");
-  if (mat->rnorms)
-    nmat->rnorms = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: rnorms");
-  if (mat->rsums)
-    nmat->rsums = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: rsums");
-  if (mat->rsizes)
-    nmat->rsizes = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: rsizes");
-  if (mat->rvols)
-    nmat->rvols = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: rvols");
-  if (mat->rwgts)
-    nmat->rwgts = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: rwgts");
-
-  if (mat->clabels)
-    nmat->clabels = gk_i32malloc(nrows, "gk_csr_ReorderSymmetric: clabels");
-  if (mat->cmap)
-    nmat->cmap = gk_i32malloc(nrows, "gk_csr_ReorderSymmetric: cmap");
-  if (mat->cnorms)
-    nmat->cnorms = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: cnorms");
-  if (mat->csums)
-    nmat->csums = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: csums");
-  if (mat->csizes)
-    nmat->csizes = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: csizes");
-  if (mat->cvols)
-    nmat->cvols = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: cvols");
-  if (mat->cwgts)
-    nmat->cwgts = gk_fmalloc(nrows, "gk_csr_ReorderSymmetric: cwgts");
-
-
-
-  /* create perm/iperm if not provided */
+  if (!gk_csr_ValidateStructure(mat, &rownnz, &colnnz)) {
+    saved_errno = errno;
+    goto failure;
+  }
+  if (mat->nrows != mat->ncols || mat->rowptr == NULL) {
+    saved_errno = EINVAL;
+    goto failure;
+  }
+  nrows = mat->nrows;
+  nrows_size = (size_t)nrows;
+  seen = (int32_t *)gk_csr_MallocNoSignal(
+      nrows_size*sizeof(int32_t), &allocation_failed);
+  if (seen == NULL)
+    goto allocation_failure;
+  if ((perm != NULL &&
+       !gk_csr_ValidatePermutation(perm, nrows, seen)) ||
+      (iperm != NULL &&
+       !gk_csr_ValidatePermutation(iperm, nrows, seen))) {
+    saved_errno = errno;
+    goto failure;
+  }
+  if (perm != NULL && iperm != NULL) {
+    for (i=0; i<nrows; i++) {
+      if (perm[iperm[i]] != i) {
+        saved_errno = EINVAL;
+        goto failure;
+      }
+    }
+  }
   if (perm == NULL) {
-    freeperm = 1;
-    perm = gk_i32malloc(nrows, "gk_csr_ReorderSymmetric: perm"); 
+    localperm = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+    if (localperm == NULL)
+      goto allocation_failure;
     for (i=0; i<nrows; i++)
-      perm[iperm[i]] = i;
+      localperm[iperm[i]] = i;
+    perm = localperm;
   }
   if (iperm == NULL) {
-    freeiperm = 1;
-    iperm = gk_i32malloc(nrows, "gk_csr_ReorderSymmetric: iperm"); 
+    localiperm = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+    if (localiperm == NULL)
+      goto allocation_failure;
     for (i=0; i<nrows; i++)
-      iperm[perm[i]] = i;
+      localiperm[perm[i]] = i;
+    iperm = localiperm;
   }
 
-  /* fill-in the information of the re-ordered matrix */
-  nrowptr[0] = jj = 0;
+  nmat = gk_csr_CreateNoSignal(&allocation_failed);
+  if (nmat == NULL)
+    goto allocation_failure;
+  nmat->nrows = nrows;
+  nmat->ncols = nrows;
+  nmat->rowptr = (ssize_t *)gk_csr_MallocNoSignal(
+      (nrows_size+1)*sizeof(ssize_t), &allocation_failed);
+  nmat->rowind = (int32_t *)gk_csr_MallocNoSignal(
+      (size_t)rownnz*sizeof(int32_t), &allocation_failed);
+  if (mat->rowval)
+    nmat->rowval = (float *)gk_csr_MallocNoSignal(
+        (size_t)rownnz*sizeof(float), &allocation_failed);
+  if (mat->rowids)
+    nmat->rowids = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+  if (mat->rlabels)
+    nmat->rlabels = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+  if (mat->rmap)
+    nmat->rmap = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+  if (mat->rnorms)
+    nmat->rnorms = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->rsums)
+    nmat->rsums = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->rsizes)
+    nmat->rsizes = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->rvols)
+    nmat->rvols = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->rwgts)
+    nmat->rwgts = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->colids)
+    nmat->colids = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+  if (mat->clabels)
+    nmat->clabels = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+  if (mat->cmap)
+    nmat->cmap = (int32_t *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(int32_t), &allocation_failed);
+  if (mat->cnorms)
+    nmat->cnorms = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->csums)
+    nmat->csums = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->csizes)
+    nmat->csizes = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->cvols)
+    nmat->cvols = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (mat->cwgts)
+    nmat->cwgts = (float *)gk_csr_MallocNoSignal(
+        nrows_size*sizeof(float), &allocation_failed);
+  if (allocation_failed)
+    goto allocation_failure;
+
+  nmat->rowptr[0] = jj = 0;
   for (v=0; v<nrows; v++) {
     u = iperm[v];
-    for (j=rowptr[u]; j<rowptr[u+1]; j++, jj++) {
-      nrowind[jj] = perm[rowind[j]];
-      nrowval[jj] = rowval[j];
+    for (j=mat->rowptr[u]; j<mat->rowptr[u+1]; j++, jj++) {
+      nmat->rowind[jj] = perm[mat->rowind[j]];
+      if (mat->rowval)
+        nmat->rowval[jj] = mat->rowval[j];
     }
-
+    if (mat->rowids)
+      nmat->rowids[v] = mat->rowids[u];
     if (mat->rlabels)
       nmat->rlabels[v] = mat->rlabels[u];
     if (mat->rmap)
@@ -2999,7 +4537,8 @@ gk_csr_t *gk_csr_ReorderSymmetric(gk_csr_t *mat, int32_t *perm, int32_t *iperm)
       nmat->rvols[v] = mat->rvols[u];
     if (mat->rwgts)
       nmat->rwgts[v] = mat->rwgts[u];
-
+    if (mat->colids)
+      nmat->colids[v] = mat->colids[u];
     if (mat->clabels)
       nmat->clabels[v] = mat->clabels[u];
     if (mat->cmap)
@@ -3014,18 +4553,20 @@ gk_csr_t *gk_csr_ReorderSymmetric(gk_csr_t *mat, int32_t *perm, int32_t *iperm)
       nmat->cvols[v] = mat->cvols[u];
     if (mat->cwgts)
       nmat->cwgts[v] = mat->cwgts[u];
-
-    nrowptr[v+1] = jj;
+    nmat->rowptr[v+1] = jj;
   }
 
-
-  /* free memory */
-  if (freeperm)
-    gk_free((void **)&perm, LTERM);
-  if (freeiperm)
-    gk_free((void **)&iperm, LTERM);
-
+  gk_free((void **)&seen, &localperm, &localiperm, LTERM);
   return nmat;
+
+allocation_failure:
+  saved_errno = errno != 0 ? errno : ENOMEM;
+  allocation_failed = 1;
+
+failure:
+  gk_free((void **)&seen, &localperm, &localiperm, LTERM);
+  return gk_csr_TransformError(&nmat, saved_errno,
+      allocation_failed, "reorder");
 }
 
 
@@ -3375,4 +4916,3 @@ void gk_csr_ComputeBestFOrderingSymmetric(gk_csr_t *mat, int v, int type,
   gk_free((void **)&perm, &degrees, &wdegrees, &sod, &ot, &pos, &level, LTERM);
 
 }
-

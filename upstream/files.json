@@ -1,5 +1,6 @@
 {
   "coverage": {
+    "all_upstream_blobs": true,
     "extensions": [
       ".c",
       ".cc",
@@ -50,7 +51,7 @@
     {
       "baseline_blob": "6e3ace820f38b40607c7add48123c091c1ffb111",
       "id": "gklib-apps-cmpnbrs-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/cmpnbrs.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/cmpnbrs.c"
@@ -58,7 +59,7 @@
     {
       "baseline_blob": "aef808ef2a7deeaf9c85f62776c741ad601f16fd",
       "id": "gklib-apps-csrcnv-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/csrcnv.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/csrcnv.c"
@@ -66,7 +67,7 @@
     {
       "baseline_blob": "084a4b6a1ffaa2a811f1917c7073a2c1f1db43b9",
       "id": "gklib-apps-fis-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/fis.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/fis.c"
@@ -74,7 +75,7 @@
     {
       "baseline_blob": "d2191ea8d814bbdb61ba198a6cecf339b5c7bb74",
       "id": "gklib-apps-gkgraph-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/gkgraph.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/gkgraph.c"
@@ -82,7 +83,7 @@
     {
       "baseline_blob": "1e4b488ca196cfd16e85803ddd85432f9bac084d",
       "id": "gklib-apps-gkrw-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/gkrw.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/gkrw.c"
@@ -98,7 +99,7 @@
     {
       "baseline_blob": "47d33b1b55e54ae93a51133e12a062da737d8e05",
       "id": "gklib-apps-gkuniq-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/gkuniq.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/gkuniq.c"
@@ -106,7 +107,7 @@
     {
       "baseline_blob": "a72b5809261791e3f49629e7fb983fb9cb4c1009",
       "id": "gklib-apps-grkx-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/grKx.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/grKx.c"
@@ -114,7 +115,7 @@
     {
       "baseline_blob": "53f35caea96acf17de937f8c4a075d95881f2355",
       "id": "gklib-apps-m2mnbrs-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/m2mnbrs.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/m2mnbrs.c"
@@ -122,7 +123,7 @@
     {
       "baseline_blob": "111d31c94bba2231689b930863edf4f2c3d12f0f",
       "id": "gklib-apps-splatt2svd-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/splatt2svd.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/splatt2svd.c"
@@ -134,6 +135,14 @@
       "local_path": "apps/strings.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/strings.c"
+    },
+    {
+      "baseline_blob": "17281d7494224f1d317e9c86aba3683ae53a908e",
+      "id": "gklib-claude-md",
+      "kind": "modified",
+      "local_path": "CLAUDE.md",
+      "notes": "Identity mapping; fork-specific changes are retained.",
+      "upstream_path": "CLAUDE.md"
     },
     {
       "baseline_blob": "cc386c1aaaf33855de0201f9fbed94c0cbcbb9f6",
@@ -150,6 +159,22 @@
       "local_path": null,
       "notes": "Removed by the build-system migration; retained as an upstream tombstone.",
       "upstream_path": "conf/check_thread_storage.c"
+    },
+    {
+      "baseline_blob": "7da36d88891765f0d4a67d2c1b72126625270767",
+      "id": "gklib-github-workflows-ci-yaml",
+      "kind": "direct",
+      "local_path": ".github/workflows/ci.yaml",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": ".github/workflows/ci.yaml"
+    },
+    {
+      "baseline_blob": "d7aa58dbe1002ab57739b673185bcd4bdb7cd658",
+      "id": "gklib-gitignore",
+      "kind": "modified",
+      "local_path": ".gitignore",
+      "notes": "Identity mapping; fork-specific changes are retained.",
+      "upstream_path": ".gitignore"
     },
     {
       "baseline_blob": "a37fbd01500c064bd2b35094240406958b2f47d3",
@@ -220,7 +245,7 @@
       "id": "gklib-include-gk-mkpqueue-h",
       "kind": "modified",
       "local_path": "include/gk_mkpqueue.h",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; priority-queue construction and initialization clean partial state before returning or rethrowing allocation failures, use unsigned heap indices with signed locators, and reject unrepresentable capacities.",
       "upstream_path": "include/gk_mkpqueue.h"
     },
     {
@@ -228,7 +253,7 @@
       "id": "gklib-include-gk-mkpqueue2-h",
       "kind": "modified",
       "local_path": "include/gk_mkpqueue2.h",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; priority-queue construction cleans partial state before returning or rethrowing allocation failures.",
       "upstream_path": "include/gk_mkpqueue2.h"
     },
     {
@@ -320,6 +345,54 @@
       "upstream_path": "include/gkregex.h"
     },
     {
+      "baseline_blob": "b11d458ecee160a0e85522c628cddf18bb59911e",
+      "id": "gklib-license-txt",
+      "kind": "direct",
+      "local_path": "LICENSE.txt",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "LICENSE.txt"
+    },
+    {
+      "baseline_blob": "428530eaaa693ade2c70a5f6bed2d38deef78a44",
+      "id": "gklib-licenses-bsd-3-clause-mt-txt",
+      "kind": "direct",
+      "local_path": "LICENSES/BSD-3-Clause-MT.txt",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "LICENSES/BSD-3-Clause-MT.txt"
+    },
+    {
+      "baseline_blob": "f6683e74e0f0130f246dbf7054f4cacc88ca84b0",
+      "id": "gklib-licenses-lgpl-2-1-txt",
+      "kind": "direct",
+      "local_path": "LICENSES/LGPL-2.1.txt",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "LICENSES/LGPL-2.1.txt"
+    },
+    {
+      "baseline_blob": "4b821c0542a9f5c1f8a447e11f4f82b8754d3d0f",
+      "id": "gklib-licenses-md",
+      "kind": "modified",
+      "local_path": "LICENSES.md",
+      "notes": "Identity mapping; fork-specific changes are retained.",
+      "upstream_path": "LICENSES.md"
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-apps-app-io-h",
+      "kind": "local",
+      "local_path": "apps/app_io.h",
+      "notes": "Local private application helper for temporary-file output and first-error commit handling.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-apps-app-parse-h",
+      "kind": "local",
+      "local_path": "apps/app_parse.h",
+      "notes": "Local private application helper for strict complete integer and floating-point option parsing.",
+      "upstream_path": null
+    },
+    {
       "baseline_blob": null,
       "id": "gklib-local-cmake-recordinstall-cmake-in",
       "kind": "local",
@@ -361,6 +434,14 @@
     },
     {
       "baseline_blob": null,
+      "id": "gklib-local-src-io-internal-h",
+      "kind": "local",
+      "local_path": "src/io_internal.h",
+      "notes": "Local private helper for one-descriptor input sizing and transactional output files.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
       "id": "gklib-local-src-memory-internal-h",
       "kind": "local",
       "local_path": "src/memory_internal.h",
@@ -385,6 +466,14 @@
     },
     {
       "baseline_blob": null,
+      "id": "gklib-local-tests-app-cli-cmake",
+      "kind": "local",
+      "local_path": "tests/app_cli.cmake",
+      "notes": "Local command-line fixture for strict argument parsing, malformed input rejection, and output-file preservation.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
       "id": "gklib-local-tests-binary-reader-short-read-c",
       "kind": "local",
       "local_path": "tests/binary_reader_short_read.c",
@@ -401,10 +490,66 @@
     },
     {
       "baseline_blob": null,
+      "id": "gklib-local-tests-cache-failure-recovery-c",
+      "kind": "local",
+      "local_path": "tests/cache_failure_recovery.c",
+      "notes": "Local deterministic allocation-failure fixture for transactional cache construction.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-cache-size-safety-c",
+      "kind": "local",
+      "local_path": "tests/cache_size_safety.c",
+      "notes": "Local regression fixture for cache dimension and allocation-size validation.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
       "id": "gklib-local-tests-cxx-consumer-cpp",
       "kind": "local",
       "local_path": "tests/cxx_consumer.cpp",
       "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-error-errno-c",
+      "kind": "local",
+      "local_path": "tests/error_errno.c",
+      "notes": "Local regression fixture for error-signal errno preservation and virtual-memory-info argument handling.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-fs-link-safety-c",
+      "kind": "local",
+      "local_path": "tests/fs_link_safety.c",
+      "notes": "Local filesystem fixture for links, regular-file validation, and path failure handling.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-getline-fallback-failure-c",
+      "kind": "local",
+      "local_path": "tests/getline_fallback_failure.c",
+      "notes": "Local regression fixture for fallback getline allocation ownership and failure recovery.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-graph-csr-hardening-c",
+      "kind": "local",
+      "local_path": "tests/graph_csr_hardening.c",
+      "notes": "Local regression fixture for graph/CSR validation, formats, transforms, weights, and allocation failures.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-htable-safety-c",
+      "kind": "local",
+      "local_path": "tests/htable_safety.c",
+      "notes": "Local regression fixture for hash-table keys, capacity limits, and transactional resize failures.",
       "upstream_path": null
     },
     {
@@ -441,10 +586,42 @@
     },
     {
       "baseline_blob": null,
+      "id": "gklib-local-tests-io-fs-hardening-c",
+      "kind": "local",
+      "local_path": "tests/io_fs_hardening.c",
+      "notes": "Local regression fixture for dynamic text input, file statistics, fopen signals, and filesystem errors.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
       "id": "gklib-local-tests-memory-failure-recovery-c",
       "kind": "local",
       "local_path": "tests/memory_failure_recovery.c",
       "notes": "Local controlled-allocator fixture for transactional mcore and memory-tracker growth, reallocation and release recovery.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-memory-failure-support-h",
+      "kind": "local",
+      "local_path": "tests/memory_failure_support.h",
+      "notes": "Local test support for deterministic allocation failures shared by memory fixtures.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-memory-size-safety-c",
+      "kind": "local",
+      "local_path": "tests/memory_size_safety.c",
+      "notes": "Local regression fixture for checked allocation sizes and matrix construction boundaries.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-output-transaction-failure-c",
+      "kind": "local",
+      "local_path": "tests/output_transaction_failure.c",
+      "notes": "Local regression fixture for write, flush, close, commit, and temporary-file cleanup failures.",
       "upstream_path": null
     },
     {
@@ -461,6 +638,14 @@
       "kind": "local",
       "local_path": "tests/pcre-package/main.cpp",
       "notes": "Local source with no baseline upstream counterpart.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-pqueue-failure-recovery-c",
+      "kind": "local",
+      "local_path": "tests/pqueue_failure_recovery.c",
+      "notes": "Local fixture for priority-queue construction, initialization, allocation failure recovery, and locator-range validation.",
       "upstream_path": null
     },
     {
@@ -497,10 +682,34 @@
     },
     {
       "baseline_blob": null,
+      "id": "gklib-local-tests-seq-reader-c",
+      "kind": "local",
+      "local_path": "tests/seq_reader.c",
+      "notes": "Local regression fixture for sequence parsing, allocation failure, signals, ownership, and release.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
       "id": "gklib-local-tests-sort-sentinel-c",
       "kind": "local",
       "local_path": "tests/sort_sentinel.c",
       "notes": "Local sort-family fixture that exercises the quicksort bottom sentinel.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-splatt2svd-hardening-cmake",
+      "kind": "local",
+      "local_path": "tests/splatt2svd_hardening.cmake",
+      "notes": "Local command-line fixture for tensor parsing, size validation, dynamic growth, and stable conversion output.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-string-growth-failure-c",
+      "kind": "local",
+      "local_path": "tests/string_growth_failure.c",
+      "notes": "Local deterministic fixture for transactional string replacement growth.",
       "upstream_path": null
     },
     {
@@ -536,12 +745,44 @@
       "upstream_path": null
     },
     {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-tokenizer-failure-c",
+      "kind": "local",
+      "local_path": "tests/tokenizer_failure.c",
+      "notes": "Local deterministic fixture for tokenizer allocation failure and empty-state cleanup.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-writer-failure-hardening-c",
+      "kind": "local",
+      "local_path": "tests/writer_failure_hardening.c",
+      "notes": "Local regression fixture for graph/CSR writer validation and first-error preservation.",
+      "upstream_path": null
+    },
+    {
       "baseline_blob": "1e68804f5d5e7e62cc288ba73508c0bfa2a8c586",
       "id": "gklib-makefile",
       "kind": "removed",
       "local_path": null,
       "notes": "Removed by the build-system migration; retained as an upstream tombstone.",
       "upstream_path": "Makefile"
+    },
+    {
+      "baseline_blob": "5e9e037fba54ce807d764344b5c690438f1ea92f",
+      "id": "gklib-readme-md",
+      "kind": "modified",
+      "local_path": "README.md",
+      "notes": "Identity mapping; fork-specific changes are retained.",
+      "upstream_path": "README.md"
+    },
+    {
+      "baseline_blob": "2b82134e7894842e821ed86d7dd3ac41786fd008",
+      "id": "gklib-scripts-gexpand-pl",
+      "kind": "direct",
+      "local_path": "scripts/gexpand.pl",
+      "notes": "Identity mapping from the upstream path.",
+      "upstream_path": "scripts/gexpand.pl"
     },
     {
       "baseline_blob": "afacd68a1e16213a93365ed00db4297cc6ef59b2",
@@ -562,7 +803,7 @@
     {
       "baseline_blob": "932e36d91b5081607e873819d062efef192da597",
       "id": "gklib-src-cache-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/cache.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "src/cache.c"
@@ -570,7 +811,7 @@
     {
       "baseline_blob": "cca18cd5580fed1d506bdd1ee577608aefb4611e",
       "id": "gklib-src-csr-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/csr.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "src/csr.c"
@@ -602,7 +843,7 @@
     {
       "baseline_blob": "21081dd45d3c5cd6686ebc30e14e2ceea6135786",
       "id": "gklib-src-fs-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/fs.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "src/fs.c"
@@ -634,7 +875,7 @@
     {
       "baseline_blob": "8c19040eefab918618082535e259ca4196c7fd00",
       "id": "gklib-src-graph-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/graph.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "src/graph.c"
@@ -642,7 +883,7 @@
     {
       "baseline_blob": "078e11434d5dbc9c707d3103f99209f6a5c580c3",
       "id": "gklib-src-htable-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/htable.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "src/htable.c"
@@ -706,7 +947,7 @@
     {
       "baseline_blob": "f267a3ea027853ab66c54c40e8772833cb03ed8d",
       "id": "gklib-src-seq-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/seq.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "src/seq.c"
@@ -738,7 +979,7 @@
     {
       "baseline_blob": "5efd262db91307067bbbeee849d57232d55335ed",
       "id": "gklib-src-tokenizer-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "src/tokenizer.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "src/tokenizer.c"

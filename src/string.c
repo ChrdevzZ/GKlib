@@ -19,6 +19,7 @@ of standard functions (but with enhanced functionality).
 #undef _XOPEN_SOURCE
 
 #include <GKlib.h>
+#include "memory_internal.h"
 
 
 
@@ -66,116 +67,252 @@ char *gk_strchr_replace(char *str, char *fromlist, char *tolist)
 
 
 /************************************************************************/
+/*! Ensures that a string builder can append the requested byte count.
+
+    Capacity growth is geometric and checked before arithmetic. Reallocation
+    is transactional: a failure leaves the original pointer and capacity
+    unchanged so the caller can release the old buffer.
+*/
+/************************************************************************/
+static int gk_strbuf_reserve(char **buffer, size_t *capacity,
+    size_t used, size_t extra)
+{
+  char *new_buffer;
+  size_t new_capacity, required;
+
+  if (used == SIZE_MAX || extra > SIZE_MAX-used-1) {
+    errno = EOVERFLOW;
+    return 0;
+  }
+  required = used+extra+1;
+  if (required <= *capacity)
+    return 1;
+
+  new_capacity = *capacity;
+  while (new_capacity < required) {
+    if (new_capacity > SIZE_MAX/2) {
+      new_capacity = required;
+      break;
+    }
+    new_capacity *= 2;
+  }
+
+  new_buffer = (char *)gk_realloc_nosignal(*buffer, new_capacity);
+  if (new_buffer == NULL) {
+    if (errno == 0)
+      errno = ENOMEM;
+    return 0;
+  }
+
+  *buffer = new_buffer;
+  *capacity = new_capacity;
+  return 1;
+}
+
+
+/************************************************************************/
+/*! Releases all regex-replacement state before reporting an error. */
+/************************************************************************/
+static int gk_strstr_replace_error(regex_t *regex, char **new_str,
+    int signum, const char *message)
+{
+  int saved_errno=errno != 0 ? errno :
+      (signum == SIGMEM ? ENOMEM : EINVAL);
+
+  gk_free((void **)new_str, LTERM);
+  regfree(regex);
+  errno = saved_errno;
+  gk_errexit(signum, "%s", message);
+  errno = saved_errno;
+  return 0;
+}
+
+
+/************************************************************************/
+/*! Duplicates a diagnostic without signaling before regex cleanup. */
+/************************************************************************/
+static char *gk_strstr_error_message(const char *message)
+{
+  char *copy;
+  size_t length=strlen(message);
+
+  if (length == SIZE_MAX) {
+    errno = EOVERFLOW;
+    return NULL;
+  }
+  copy = (char *)gk_malloc_nosignal(length+1);
+  if (copy != NULL)
+    memcpy(copy, message, length+1);
+  else if (errno == 0)
+    errno = ENOMEM;
+
+  return copy;
+}
+
+
+/************************************************************************/
 /*! \brief Regex-based search-and-replace function
  
 This function is a C implementation of Perl's <tt> s//</tt> regular-expression
 based substitution function.
 
-\param str 
-  is the input string on which the operation will be performed.
+\param str
+  is the non-NULL input string on which the operation will be performed.
 \param pattern
-  is the regular expression for the pattern to be matched for substitution.
+  is the non-NULL regular expression for the pattern to be matched.
 \param replacement
-  is the replacement string, in which the possible captured pattern substrings
-  are referred to as $1, $2, ..., $9. The entire matched pattern is refered
-  to as $0.
+  is the non-NULL replacement string, in which the possible captured pattern
+  substrings are referred to as $1, $2, ..., $9. The entire matched pattern
+  is referred to as $0.
 \param options
-  is a string specified options for the substitution operation. Currently the
-  <tt>"i"</tt> (case insensitive) and <tt>"g"</tt> (global substitution) are 
-  supported. Global substitution advances past one input byte after an empty
-  match, retaining that byte, and stops after an empty match at the end.
-\param new_str 
-  is a reference to a pointer that will store a pointer to the newly created 
-  string that results from the substitutions. This string is allocated via 
-  gk_malloc() and needs to be freed using gk_free(). The string is returned 
-  even if no substitutions were performed.
-\returns
-  If successful, it returns 1 + the number of substitutions that were performed.
-  Thus, if no substitutions were performed, the returned value will be 1.
-  Otherwise it returns 0. In case of error, a meaningful error message is 
-  returned in <tt>newstr</tt>, which also needs to be freed afterwards.
+  is a non-NULL string specifying options for the substitution operation.
+  Currently <tt>"i"</tt> (case insensitive) and <tt>"g"</tt> (global
+  substitution) are supported. Global substitution advances past one input
+  byte after an empty match, retaining that byte, and stops after an empty
+  match at the end.
+\param new_str
+  is a non-NULL output pointer that receives the newly allocated result
+  string. It is allocated by gk_malloc() and must be freed with gk_free().
+  The string is returned even when no substitutions were performed.
+\returns 1 plus the number of substitutions on success, or 0 on error. A
+         regular-expression diagnostic may be returned in \c new_str when
+         compilation fails and must also be freed with gk_free().
 */
 /************************************************************************/
 int gk_strstr_replace(char *str, char *pattern, char *replacement, char *options,
       char **new_str)
 {
-  ssize_t i, len, rlen, nlen, offset, noffset;
+  size_t i, len, rlen, capacity, offset, noffset, count;
   int j, rc, flags, global, nmatches;
   regex_t re;
   regmatch_t matches[10];
 
-  
+  if (new_str == NULL) {
+    errno = EINVAL;
+    gk_errexit(SIGERR, "gk_strstr_replace: output pointer must not be NULL");
+    errno = EINVAL;
+    return 0;
+  }
+  *new_str = NULL;
+  if (str == NULL || pattern == NULL || replacement == NULL ||
+      options == NULL) {
+    errno = EINVAL;
+    gk_errexit(SIGERR, "gk_strstr_replace: input strings must not be NULL");
+    errno = EINVAL;
+    return 0;
+  }
+
   /* Parse the options */
   flags = REG_EXTENDED;
   if (strchr(options, 'i') != NULL)
     flags = flags | REG_ICASE;
   global = (strchr(options, 'g') != NULL ? 1 : 0);
 
-
   /* Compile the regex */
-  if ((rc = regcomp(&re, pattern, flags)) != 0) { 
+  if ((rc = regcomp(&re, pattern, flags)) != 0) {
     len = regerror(rc, &re, NULL, 0);
-    *new_str = gk_cmalloc(len, "gk_strstr_replace: new_str");
-    regerror(rc, &re, *new_str, len);
+    *new_str = (char *)gk_malloc_nosignal(len);
+    if (*new_str != NULL)
+      regerror(rc, &re, *new_str, len);
+    else {
+      if (errno == 0)
+        errno = ENOMEM;
+      gk_errexit(SIGMEM,
+          "gk_strstr_replace: failed to allocate regex diagnostic");
+    }
     return 0;
   }
 
-  /* Prepare the output string */
+  /* Prepare the output string. */
   len = strlen(str);
-  nlen = 2*len;
-  noffset = 0;
-  *new_str = gk_cmalloc(nlen+1, "gk_strstr_replace: new_str");
+  if (len == SIZE_MAX) {
+    errno = EOVERFLOW;
+    return gk_strstr_replace_error(&re, new_str, SIGMEM,
+        "gk_strstr_replace: input size overflow");
+  }
+  capacity = (len <= (SIZE_MAX-1)/2 ? 2*len+1 : len+1);
+  *new_str = (char *)gk_malloc_nosignal(capacity);
+  if (*new_str == NULL) {
+    if (errno == 0)
+      errno = ENOMEM;
+    return gk_strstr_replace_error(&re, new_str, SIGMEM,
+        "gk_strstr_replace: failed to allocate output");
+  }
 
-
-  /* Get into the matching-replacing loop */
   rlen = strlen(replacement);
   offset = 0;
+  noffset = 0;
   nmatches = 0;
   do {
-    rc = regexec(&re, str+offset, 10, matches, (offset > 0 ? REG_NOTBOL : 0));
+    rc = regexec(&re, str+offset, 10, matches,
+        (offset > 0 ? REG_NOTBOL : 0));
 
-    if (rc == REG_ESPACE) {
+    if (rc != 0 && rc != REG_NOMATCH) {
       gk_free((void **)new_str, LTERM);
-      *new_str = gk_strdup("regexec ran out of memory.");
+      len = regerror(rc, &re, NULL, 0);
+      *new_str = (char *)gk_malloc_nosignal(len);
+      if (*new_str != NULL)
+        regerror(rc, &re, *new_str, len);
+      else {
+        if (errno == 0)
+          errno = ENOMEM;
+        return gk_strstr_replace_error(&re, new_str, SIGMEM,
+            "gk_strstr_replace: failed to allocate regex diagnostic");
+      }
       regfree(&re);
       return 0;
     }
     else if (rc == REG_NOMATCH) {
-      if (nlen-noffset < len-offset) {
-        nlen += (len-offset) - (nlen-noffset);
-        *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
+      count = len-offset;
+      if (!gk_strbuf_reserve(new_str, &capacity, noffset, count)) {
+        return gk_strstr_replace_error(&re, new_str, SIGMEM,
+            "gk_strstr_replace: failed to grow output");
       }
-      strcpy(*new_str+noffset, str+offset);
-      noffset += (len-offset);
+      memcpy(*new_str+noffset, str+offset, count);
+      noffset += count;
       break;
     }
-    else { /* A match was found! */
+    else {
+      if (matches[0].rm_so < 0 || matches[0].rm_eo < matches[0].rm_so ||
+          (size_t)matches[0].rm_eo > len-offset) {
+        errno = EINVAL;
+        return gk_strstr_replace_error(&re, new_str, SIGERR,
+            "gk_strstr_replace: invalid regex match range");
+      }
+      if (nmatches == INT_MAX-1) {
+        errno = EOVERFLOW;
+        return gk_strstr_replace_error(&re, new_str, SIGMEM,
+            "gk_strstr_replace: too many matches");
+      }
       nmatches++;
 
-      /* Copy the left unmatched portion of the string */
-      if (matches[0].rm_so > 0) {
-        if (nlen-noffset < matches[0].rm_so) {
-          nlen += matches[0].rm_so - (nlen-noffset);
-          *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
-        }
-        memcpy(*new_str+noffset, str+offset, matches[0].rm_so);
-        noffset += matches[0].rm_so;
+      count = (size_t)matches[0].rm_so;
+      if (!gk_strbuf_reserve(new_str, &capacity, noffset, count)) {
+        return gk_strstr_replace_error(&re, new_str, SIGMEM,
+            "gk_strstr_replace: failed to grow output");
       }
+      memcpy(*new_str+noffset, str+offset, count);
+      noffset += count;
 
-      /* Go and append the replacement string */
+      /* Append the replacement string. */
       for (i=0; i<rlen; i++) {
         switch (replacement[i]) {
           case '\\':
             if (i+1 < rlen) {
-              if (nlen-noffset < 1) {
-                nlen += nlen + 1;
-                *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
+              if (!gk_strbuf_reserve(new_str, &capacity, noffset, 1)) {
+                return gk_strstr_replace_error(&re, new_str, SIGMEM,
+                    "gk_strstr_replace: failed to grow output");
               }
               (*new_str)[noffset++] = replacement[++i];
             }
             else {
               gk_free((void **)new_str, LTERM);
-              *new_str = gk_strdup("Error in replacement string. Missing character following '\'.");
+              *new_str = gk_strstr_error_message(
+                  "Error in replacement string. "
+                  "Missing character following '\\'.");
+              if (*new_str == NULL)
+                return gk_strstr_replace_error(&re, new_str, SIGMEM,
+                    "gk_strstr_replace: failed to allocate diagnostic");
               regfree(&re);
               return 0;
             }
@@ -186,71 +323,81 @@ int gk_strstr_replace(char *str, char *pattern, char *replacement, char *options
               j = (int)(replacement[++i] - '0');
               if (j < 0 || j > 9) {
                 gk_free((void **)new_str, LTERM);
-                *new_str = gk_strdup("Error in captured subexpression specification.");
+                *new_str = gk_strstr_error_message(
+                    "Error in captured subexpression specification.");
+                if (*new_str == NULL)
+                  return gk_strstr_replace_error(&re, new_str, SIGMEM,
+                      "gk_strstr_replace: failed to allocate diagnostic");
                 regfree(&re);
                 return 0;
               }
-
-              /* A subexpression that did not participate contributes no text. */
               if (matches[j].rm_so < 0)
                 break;
-
-              if (nlen-noffset < matches[j].rm_eo-matches[j].rm_so) {
-                nlen += nlen + (matches[j].rm_eo-matches[j].rm_so);
-                *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
+              if (matches[j].rm_eo < matches[j].rm_so ||
+                  (size_t)matches[j].rm_eo > len-offset) {
+                errno = EINVAL;
+                return gk_strstr_replace_error(&re, new_str, SIGERR,
+                    "gk_strstr_replace: invalid capture range");
               }
 
-              memcpy(*new_str+noffset, str+offset+matches[j].rm_so, matches[j].rm_eo-matches[j].rm_so);
-              noffset += matches[j].rm_eo-matches[j].rm_so;
+              count = (size_t)(matches[j].rm_eo-matches[j].rm_so);
+              if (!gk_strbuf_reserve(new_str, &capacity, noffset, count)) {
+                return gk_strstr_replace_error(&re, new_str, SIGMEM,
+                    "gk_strstr_replace: failed to grow output");
+              }
+              memcpy(*new_str+noffset, str+offset+matches[j].rm_so, count);
+              noffset += count;
             }
             else {
               gk_free((void **)new_str, LTERM);
-              *new_str = gk_strdup("Error in replacement string. Missing subexpression number folloing '$'.");
+              *new_str = gk_strstr_error_message(
+                  "Error in replacement string. "
+                  "Missing subexpression number following '$'.");
+              if (*new_str == NULL)
+                return gk_strstr_replace_error(&re, new_str, SIGMEM,
+                    "gk_strstr_replace: failed to allocate diagnostic");
               regfree(&re);
               return 0;
             }
             break;
 
           default:
-            if (nlen-noffset < 1) {
-              nlen += nlen + 1;
-              *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
+            if (!gk_strbuf_reserve(new_str, &capacity, noffset, 1)) {
+              return gk_strstr_replace_error(&re, new_str, SIGMEM,
+                  "gk_strstr_replace: failed to grow output");
             }
             (*new_str)[noffset++] = replacement[i];
         }
       }
 
-      /* Update the offset of str for the next match */
-      offset += matches[0].rm_eo;
+      offset += (size_t)matches[0].rm_eo;
 
       /* Empty matches must make progress without discarding input text. */
       if (global && matches[0].rm_so == matches[0].rm_eo) {
         if (offset == len)
           break;
-        if (nlen-noffset < 1) {
-          nlen += nlen + 1;
-          *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
+        if (!gk_strbuf_reserve(new_str, &capacity, noffset, 1)) {
+          return gk_strstr_replace_error(&re, new_str, SIGMEM,
+              "gk_strstr_replace: failed to grow output");
         }
         (*new_str)[noffset++] = str[offset++];
       }
 
       if (!global) {
-        /* Copy the right portion of the string if no 'g' option */
-        if (nlen-noffset < len-offset) {
-          nlen += (len-offset) - (nlen-noffset);
-          *new_str = (char *)gk_realloc(*new_str, (nlen+1)*sizeof(char), "gk_strstr_replace: new_str");
+        count = len-offset;
+        if (!gk_strbuf_reserve(new_str, &capacity, noffset, count)) {
+          return gk_strstr_replace_error(&re, new_str, SIGMEM,
+              "gk_strstr_replace: failed to grow output");
         }
-        strcpy(*new_str+noffset, str+offset);
-        noffset += (len-offset);
+        memcpy(*new_str+noffset, str+offset, count);
+        noffset += count;
       }
     }
   } while (global);
 
   (*new_str)[noffset] = '\0';
-
   regfree(&re);
   return nmatches + 1;
-
 }
 
 
@@ -346,7 +493,8 @@ char *gk_strtoupper(char *str)
 {
   int i;
 
-  for (i=0; str[i]!='\0'; str[i]=toupper(str[i]), i++); 
+  for (i=0; str[i]!='\0';
+       str[i]=(char)toupper((unsigned char)str[i]), i++);
   return str;
 }
 
@@ -366,7 +514,8 @@ char *gk_strtolower(char *str)
 {
   int i;
 
-  for (i=0; str[i]!='\0'; str[i]=tolower(str[i]), i++); 
+  for (i=0; str[i]!='\0';
+       str[i]=(char)tolower((unsigned char)str[i]), i++);
   return str;
 }
 
@@ -388,13 +537,19 @@ The string that is returned must be freed by gk_free().
 /*************************************************************************/
 char *gk_strdup(char *orgstr)
 {
-  int len;
+  size_t len;
   char *str=NULL;
 
   if (orgstr != NULL) {
-    len = strlen(orgstr)+1;
-    str = gk_malloc(len*sizeof(char), "gk_strdup: str");
-    strcpy(str, orgstr);
+    len = strlen(orgstr);
+    if (len == SIZE_MAX) {
+      gk_errexit(SIGMEM, "gk_strdup: string size overflow");
+      return NULL;
+    }
+    len++;
+    str = gk_malloc(len, "gk_strdup: str");
+    if (str != NULL)
+      memcpy(str, orgstr, len);
   }
 
   return str;
@@ -427,7 +582,7 @@ int gk_strcasecmp(char *s1, char *s2)
     return 0;
 
   while (s1[i] != '\0') {
-    if (tolower(s1[i]) != tolower(s2[i]))
+    if (tolower((unsigned char)s1[i]) != tolower((unsigned char)s2[i]))
       return 0;
     i++;
   }

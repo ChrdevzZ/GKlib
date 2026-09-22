@@ -14,6 +14,7 @@ static size_t live_allocations;
 static int mallocs_before_failure = -1;
 static int fail_next_realloc;
 static int error_count;
+static int error_signal;
 
 
 static void *test_malloc(size_t nbytes)
@@ -23,6 +24,7 @@ static void *test_malloc(size_t nbytes)
   if (mallocs_before_failure >= 0) {
     if (mallocs_before_failure == 0) {
       mallocs_before_failure = -1;
+      errno = ENOMEM;
       return NULL;
     }
     mallocs_before_failure--;
@@ -42,6 +44,7 @@ static void *test_realloc(void *oldptr, size_t nbytes)
 
   if (fail_next_realloc) {
     fail_next_realloc = 0;
+    errno = ENOMEM;
     return NULL;
   }
 
@@ -61,15 +64,15 @@ static void test_free(void *ptr)
 }
 
 
-void gk_errexit(int signum, char *f_str, ...)
+void gk_errexit(int signum, const char *f_str, ...)
 {
-  (void)signum;
   (void)f_str;
   error_count++;
+  error_signal = signum;
 }
 
 
-void errexit(char *f_str, ...)
+void errexit(const char *f_str, ...)
 {
   (void)f_str;
   error_count++;
@@ -181,14 +184,14 @@ static int check_realloc_failure(void)
 
   if (!gk_malloc_init())
     return 20;
-  ptr = (unsigned char *)gk_malloc(64, (char *)"tracked allocation");
+  ptr = (unsigned char *)gk_malloc(64, "tracked allocation");
   if (ptr == NULL || gk_GetCurMemoryUsed() != 64)
     return 21;
   ptr[0] = 73;
 
   fail_next_realloc = 1;
   error_count = 0;
-  result = gk_realloc(ptr, 128, (char *)"tracked realloc");
+  result = gk_realloc(ptr, 128, "tracked realloc");
   if (result != NULL || error_count != 1 || ptr[0] != 73 ||
       gk_GetCurMemoryUsed() != 64)
     return 22;
@@ -199,6 +202,24 @@ static int check_realloc_failure(void)
 }
 
 
+static int check_generic_matrix_partial_failure(void)
+{
+  void **matrix = (void **)1;
+
+  mallocs_before_failure = 3;
+  error_count = 0;
+  gk_AllocMatrix(&matrix, sizeof(int), 4, 3);
+  if (matrix != NULL || error_count != 1 || live_allocations != 0)
+    return 24;
+
+  gk_AllocMatrix(&matrix, sizeof(int), 4, 3);
+  if (matrix == NULL || live_allocations != 5)
+    return 25;
+  gk_FreeMatrix(&matrix, 4, 3);
+  return matrix == NULL && live_allocations == 0 ? 0 : 26;
+}
+
+
 static int check_realloc_success_stats(void)
 {
   unsigned char *ptr;
@@ -206,12 +227,12 @@ static int check_realloc_success_stats(void)
 
   if (!gk_malloc_init())
     return 30;
-  ptr = (unsigned char *)gk_malloc(64, (char *)"tracked allocation");
+  ptr = (unsigned char *)gk_malloc(64, "tracked allocation");
   if (ptr == NULL)
     return 31;
   cmop = gkmcore->cmop;
 
-  ptr = (unsigned char *)gk_realloc(ptr, 96, (char *)"tracked realloc");
+  ptr = (unsigned char *)gk_realloc(ptr, 96, "tracked realloc");
   if (ptr == NULL || gkmcore->cmop != cmop ||
       gkmcore->num_hallocs != 2 || gkmcore->size_hallocs != 160 ||
       gkmcore->cur_hallocs != 96 || gkmcore->max_hallocs != 96)
@@ -230,14 +251,16 @@ static int check_realloc_marker_boundary(void)
 
   if (!gk_malloc_init())
     return 35;
-  ptr = (unsigned char *)gk_malloc(64, (char *)"outer allocation");
+  ptr = (unsigned char *)gk_malloc(64, "outer allocation");
   if (ptr == NULL || !gk_malloc_init())
     return 36;
   ptr[0] = 91;
 
   error_count = 0;
-  result = gk_realloc(ptr, 96, (char *)"cross-marker realloc");
-  if (result != NULL || error_count != 1 || ptr[0] != 91 ||
+  error_signal = 0;
+  result = gk_realloc(ptr, 96, "cross-marker realloc");
+  if (result != NULL || error_count != 1 || error_signal != SIGERR ||
+      errno != EINVAL || ptr[0] != 91 ||
       gk_GetCurMemoryUsed() != 64)
     return 37;
 
@@ -255,14 +278,17 @@ static int check_free_marker_boundary(void)
 
   if (!gk_malloc_init())
     return 80;
-  ptr = (unsigned char *)gk_malloc(64, (char *)"outer allocation");
+  ptr = (unsigned char *)gk_malloc(64, "outer allocation");
   if (ptr == NULL || !gk_malloc_init())
     return 81;
   ptr[0] = 92;
 
   error_count = 0;
+  error_signal = 0;
+  errno = 0;
   gk_free((void **)&ptr, LTERM);
-  if (ptr == NULL || error_count != 1 || ptr[0] != 92 ||
+  if (ptr == NULL || error_count != 1 || error_signal != SIGERR ||
+      errno != EINVAL || ptr[0] != 92 ||
       gk_GetCurMemoryUsed() != 64)
     status = 82;
 
@@ -283,20 +309,23 @@ static int check_free_variadic_boundary(void)
 
   if (!gk_malloc_init())
     return 84;
-  outer = (unsigned char *)gk_malloc(24, (char *)"outer allocation");
+  outer = (unsigned char *)gk_malloc(24, "outer allocation");
   if (outer == NULL || !gk_malloc_init())
     return 85;
-  first = (unsigned char *)gk_malloc(8, (char *)"first inner allocation");
-  after = (unsigned char *)gk_malloc(16, (char *)"later inner allocation");
+  first = (unsigned char *)gk_malloc(8, "first inner allocation");
+  after = (unsigned char *)gk_malloc(16, "later inner allocation");
   if (first == NULL || after == NULL)
     return 86;
   outer[0] = 93;
   after[0] = 94;
 
   error_count = 0;
+  error_signal = 0;
+  errno = 0;
   gk_free((void **)&first, &outer, &after, LTERM);
   if (first != NULL || outer == NULL || after == NULL ||
       outer[0] != 93 || after[0] != 94 || error_count != 1 ||
+      error_signal != SIGERR || errno != EINVAL ||
       gk_GetCurMemoryUsed() != 40)
     status = 87;
 
@@ -318,8 +347,8 @@ static int check_free_multiple_success(void)
 
   if (!gk_malloc_init())
     return 89;
-  first = gk_malloc(8, (char *)"first allocation");
-  second = gk_malloc(16, (char *)"second allocation");
+  first = gk_malloc(8, "first allocation");
+  second = gk_malloc(16, "second allocation");
   if (first == NULL || second == NULL || gk_GetCurMemoryUsed() != 24)
     return 90;
 
@@ -472,7 +501,7 @@ static int check_malloc_reserves_first(void)
 
   fail_next_realloc = 1;
   error_count = 0;
-  ptr = gk_malloc(16, (char *)"reserve before payload");
+  ptr = gk_malloc(16, "reserve before payload");
   if (ptr != NULL || error_count != 1 || live_allocations != old_live ||
       gkmcore->mops != old_mops || gkmcore->nmops != 2048)
     return 41;
@@ -586,6 +615,105 @@ static int check_tracked_mcore_outer_frame_growth(void)
 }
 
 
+static int check_statistics_overflow_preserves_reallocation(void)
+{
+  unsigned char *ptr;
+  void *result;
+  gk_mop_t *mops;
+  size_t nmops, cmop, num_hallocs, cur_hallocs;
+
+  if (!gk_malloc_init())
+    return 201;
+  ptr = (unsigned char *)gk_malloc(64, "tracked allocation");
+  if (ptr == NULL)
+    return 202;
+  ptr[0] = 37;
+
+  mops = gkmcore->mops;
+  nmops = gkmcore->nmops;
+  cmop = gkmcore->cmop;
+  num_hallocs = gkmcore->num_hallocs;
+  cur_hallocs = gkmcore->cur_hallocs;
+  gkmcore->size_hallocs = SIZE_MAX;
+
+  error_count = 0;
+  error_signal = 0;
+  result = gk_realloc(ptr, 96, "statistics overflow");
+  if (result != NULL || error_count != 1 || error_signal != SIGMEM ||
+      errno != EOVERFLOW || ptr[0] != 37 ||
+      gkmcore->mops != mops || gkmcore->nmops != nmops ||
+      gkmcore->cmop != cmop || gkmcore->num_hallocs != num_hallocs ||
+      gkmcore->size_hallocs != SIZE_MAX ||
+      gkmcore->cur_hallocs != cur_hallocs)
+    return 203;
+
+  gkmcore->size_hallocs = 64;
+  gk_free((void **)&ptr, LTERM);
+  gk_malloc_cleanup(0);
+  return live_allocations == 0 ? 0 : 204;
+}
+
+
+static int check_statistics_overflow_preserves_tracker_capacity(void)
+{
+  gk_mop_t *mops;
+  size_t cmop, live_before;
+  void *ptr;
+
+  if (!gk_malloc_init())
+    return 205;
+  mops = gkmcore->mops;
+  cmop = gkmcore->cmop;
+  live_before = live_allocations;
+  gkmcore->cmop = gkmcore->nmops;
+  gkmcore->size_hallocs = SIZE_MAX;
+
+  error_count = 0;
+  error_signal = 0;
+  ptr = gk_malloc(8, "statistics overflow");
+  if (ptr != NULL || error_count != 1 || error_signal != SIGMEM ||
+      errno != EOVERFLOW || live_allocations != live_before ||
+      gkmcore->mops != mops || gkmcore->nmops != 2048 ||
+      gkmcore->cmop != 2048 || gkmcore->size_hallocs != SIZE_MAX)
+    return 206;
+
+  gkmcore->cmop = cmop;
+  gkmcore->size_hallocs = 0;
+  gk_malloc_cleanup(0);
+  return live_allocations == 0 ? 0 : 207;
+}
+
+
+static int check_tracker_capacity_overflow(void)
+{
+  size_t cmop, nmops;
+  void *ptr;
+  int status=0;
+
+  if (!gk_malloc_init())
+    return 208;
+  cmop = gkmcore->cmop;
+  nmops = gkmcore->nmops;
+  gkmcore->cmop = SIZE_MAX;
+  gkmcore->nmops = SIZE_MAX;
+
+  errno = 0;
+  error_count = 0;
+  error_signal = 0;
+  ptr = gk_malloc(8, "tracker capacity overflow");
+  if (ptr != NULL || error_count != 1 || error_signal != SIGMEM ||
+      errno != EOVERFLOW)
+    status = 209;
+
+  gkmcore->cmop = cmop;
+  gkmcore->nmops = nmops;
+  gk_malloc_cleanup(0);
+  if (live_allocations != 0 && status == 0)
+    status = 210;
+  return status;
+}
+
+
 int main(void)
 {
   int status;
@@ -597,6 +725,9 @@ int main(void)
   if (status != 0)
     return status;
   status = check_realloc_failure();
+  if (status != 0)
+    return status;
+  status = check_generic_matrix_partial_failure();
   if (status != 0)
     return status;
   status = check_realloc_success_stats();
@@ -633,6 +764,16 @@ int main(void)
   if (status != 0)
     return status;
   status = check_tracked_mcore_outer_frame_growth();
+  if (status != 0)
+    return status;
+  status = check_statistics_overflow_preserves_reallocation();
+  if (status != 0)
+    return status;
+  status = check_statistics_overflow_preserves_tracker_capacity();
+  if (status != 0)
+    return status;
+
+  status = check_tracker_capacity_overflow();
   if (status != 0)
     return status;
 

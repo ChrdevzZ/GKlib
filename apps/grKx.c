@@ -9,6 +9,8 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+
 /*************************************************************************/
 /*! Data structures for the code */
 /*************************************************************************/
@@ -156,12 +158,12 @@ params_t *parse_cmdline(int argc, char *argv[])
       case CMD_HELP:
         for (i=0; strlen(helpstr[i]) > 0; i++)
           printf("%s\n", helpstr[i]);
-        exit(0);
+        exit(EXIT_SUCCESS);
         break;
       case '?':
       default:
         printf("Illegal command-line option(s)\nUse %s -help for a summary of the options.\n", argv[0]);
-        exit(0);
+        exit(EXIT_FAILURE);
     }
   }
 
@@ -169,14 +171,17 @@ params_t *parse_cmdline(int argc, char *argv[])
     printf("Unrecognized parameters.");
     for (i=0; strlen(shorthelpstr[i]) > 0; i++)
       printf("%s\n", shorthelpstr[i]);
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
   params->infile  = gk_strdup(argv[gk_optind++]);
-  params->inf     = atoi(argv[gk_optind++]);
+  params->inf     = gk_app_parse_int(argv[gk_optind++], "inf");
   params->outfile = gk_strdup(argv[gk_optind++]);
-  params->outf    = atoi(argv[gk_optind++]);
-  params->ncopies = atoi(argv[gk_optind++]);
+  params->outf    = gk_app_parse_int(argv[gk_optind++], "outf");
+  params->ncopies = gk_app_parse_int(argv[gk_optind++], "ncopies");
+
+  if (params->ncopies <= 0)
+    errexit("ncopies must be greater than zero.\n");
 
   if (!gk_fexists(params->infile))
     errexit("input file %s does not exist.\n", params->infile);
@@ -200,21 +205,43 @@ int main(int argc, char *argv[])
 
   /* read the data */
   mat = gk_csr_Read(params->infile, params->inf, params->readvals, params->numbering);
+  if (mat == NULL)
+    return EXIT_FAILURE;
 
   /* create the copies */
   ncopies = params->ncopies;
 
   nrows = mat->nrows;
   ncols = mat->ncols;
+  if (nrows < 0 || ncols < 0 || mat->rowptr == NULL ||
+      mat->rowptr[nrows] < 0 ||
+      (nrows > 0 && ncopies > INT32_MAX/nrows) ||
+      (ncols > 0 && ncopies > INT32_MAX/ncols) ||
+      (mat->rowptr[nrows] > 0 &&
+       ncopies > PTRDIFF_MAX/mat->rowptr[nrows])) {
+    gk_csr_Free(&mat);
+    errexit("The requested matrix copies exceed representable dimensions.\n");
+    return EXIT_FAILURE;
+  }
   knnz  = mat->rowptr[nrows]*ncopies;
 
   kmat         = gk_csr_Create();
+  if (kmat == NULL) {
+    gk_csr_Free(&mat);
+    return EXIT_FAILURE;
+  }
   kmat->nrows  = nrows*ncopies;
   kmat->ncols  = ncols*ncopies;
-  kmat->rowptr = gk_zmalloc(kmat->nrows+1, "rowptr");
+  kmat->rowptr = gk_zmalloc((size_t)kmat->nrows+1, "rowptr");
   kmat->rowind = gk_imalloc(knnz, "rowind");
   if (mat->rowval)
     kmat->rowval = gk_fmalloc(knnz, "rowval");
+  if (kmat->rowptr == NULL || kmat->rowind == NULL ||
+      (mat->rowval != NULL && kmat->rowval == NULL)) {
+    gk_csr_Free(&mat);
+    gk_csr_Free(&kmat);
+    return EXIT_FAILURE;
+  }
 
   kmat->rowptr[0] = knnz = 0;
   for (k=0; k<ncopies; k++) {
@@ -252,5 +279,6 @@ int main(int argc, char *argv[])
 
   gk_csr_Free(&mat);
 
+  return EXIT_SUCCESS;
 }
 

@@ -10,6 +10,8 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+
 /*************************************************************************/
 /*! Data structures for the code */
 /*************************************************************************/
@@ -31,6 +33,55 @@ typedef struct {
   char *infile;     /* input file */
   char *outfile;    /* output file */
 } params_t;
+
+
+/*************************************************************************/
+/*! Validates and normalizes a complete symmetric inverse permutation.
+
+    Both zero-based and one-based files are accepted. The entries are changed
+    to zero-based numbering only after their range and uniqueness have been
+    checked.
+*/
+/*************************************************************************/
+static int validate_iperm(int32_t *iperm, size_t n)
+{
+  size_t i, value;
+  int base=1;
+  int32_t *seen;
+
+  if (iperm == NULL || n == 0 || n > INT32_MAX)
+    return 0;
+  for (i=0; i<n; i++) {
+    if (iperm[i] == 0) {
+      base = 0;
+      break;
+    }
+  }
+
+  seen = gk_i32smalloc(n, 0, "validate_iperm: seen");
+  if (seen == NULL)
+    return 0;
+  for (i=0; i<n; i++) {
+    if (iperm[i] < base || (size_t)(iperm[i]-base) >= n) {
+      gk_free((void **)&seen, LTERM);
+      return 0;
+    }
+    value = (size_t)(iperm[i]-base);
+    if (seen[value]) {
+      gk_free((void **)&seen, LTERM);
+      return 0;
+    }
+    seen[value] = 1;
+  }
+  gk_free((void **)&seen, LTERM);
+
+  if (base == 1) {
+    for (i=0; i<n; i++)
+      iperm[i]--;
+  }
+
+  return 1;
+}
 
 
 /*************************************************************************/
@@ -215,19 +266,19 @@ params_t *parse_cmdline(int argc, char *argv[])
 
 
       case CMD_MINCOLFREQ:
-        if (gk_optarg) params->mincolfreq = atoi(gk_optarg);
+        params->mincolfreq = gk_app_parse_int(gk_optarg, "mincolfreq");
         break;
       case CMD_MINROWFREQ:
-        if (gk_optarg) params->minrowfreq = atoi(gk_optarg);
+        params->minrowfreq = gk_app_parse_int(gk_optarg, "minrowfreq");
         break;
       case CMD_MAXCOLFREQ:
-        if (gk_optarg) params->maxcolfreq = atoi(gk_optarg);
+        params->maxcolfreq = gk_app_parse_int(gk_optarg, "maxcolfreq");
         break;
       case CMD_MAXROWFREQ:
-        if (gk_optarg) params->maxrowfreq = atoi(gk_optarg);
+        params->maxrowfreq = gk_app_parse_int(gk_optarg, "maxrowfreq");
         break;
       case CMD_ROWNRMFLTR:
-        if (gk_optarg) params->rownrmfltr = atof(gk_optarg);
+        params->rownrmfltr = gk_app_parse_float(gk_optarg, "rownrmfltr");
         break;
       case CMD_COMPACTCOLS:
         params->compactcols = 1;
@@ -244,12 +295,12 @@ params_t *parse_cmdline(int argc, char *argv[])
       case CMD_HELP:
         for (i=0; strlen(helpstr[i]) > 0; i++)
           printf("%s\n", helpstr[i]);
-        exit(0);
+        exit(EXIT_SUCCESS);
         break;
       case '?':
       default:
         printf("Illegal command-line option(s)\nUse %s -help for a summary of the options.\n", argv[0]);
-        exit(0);
+        exit(EXIT_FAILURE);
     }
   }
 
@@ -257,13 +308,13 @@ params_t *parse_cmdline(int argc, char *argv[])
     printf("Unrecognized parameters.");
     for (i=0; strlen(shorthelpstr[i]) > 0; i++)
       printf("%s\n", shorthelpstr[i]);
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
   params->infile  = gk_strdup(argv[gk_optind++]);
-  params->inf     = atoi(argv[gk_optind++]);
+  params->inf     = gk_app_parse_int(argv[gk_optind++], "inf");
   params->outfile = gk_strdup(argv[gk_optind++]);
-  params->outf    = atoi(argv[gk_optind++]);
+  params->outf    = gk_app_parse_int(argv[gk_optind++], "outf");
 
   if (!gk_fexists(params->infile))
     errexit("input file %s does not exist.\n", params->infile);
@@ -286,6 +337,8 @@ int main(int argc, char *argv[])
 
   /* read the data */
   mat = gk_csr_Read(params->infile, params->inf, params->readvals, params->numbering);
+  if (mat == NULL)
+    return EXIT_FAILURE;
 
   /* deal with weird transformations */
   if (params->mincolfreq != -1 || params->maxcolfreq != -1) {
@@ -353,24 +406,25 @@ int main(int argc, char *argv[])
 
 
   if (params->srenumber) {
-    int32_t i;
     size_t nlines;
     int32_t *iperm;
     gk_csr_t *smat;
 
     iperm = gk_i32readfile(params->srenumber, &nlines);
-    if (nlines != mat->nrows && nlines != mat->ncols)
-      errexit("The nlines=%zud of srenumber file does not match nrows: %d, ncols: %d\n", nlines, mat->nrows, mat->ncols);
-
-    if (gk_i32max(nlines, iperm, 1) >= nlines && gk_i32min(nlines, iperm, 1) <= 0) 
-      errexit("The srenumber iperm seems to be wrong.\n");
-    
-    if (gk_i32max(nlines, iperm, 1) == nlines) { /* need to renumber */
-      for (i=0; i<nlines; i++)
-        iperm[i]--;
+    if (iperm == NULL || mat->nrows != mat->ncols ||
+        nlines != (size_t)mat->nrows || !validate_iperm(iperm, nlines)) {
+      gk_free((void **)&iperm, LTERM);
+      gk_csr_Free(&mat);
+      errexit("The srenumber file is not a complete matrix permutation.\n");
+      return EXIT_FAILURE;
     }
 
     smat = gk_csr_ReorderSymmetric(mat, iperm, NULL);
+    if (smat == NULL) {
+      gk_free((void **)&iperm, LTERM);
+      gk_csr_Free(&mat);
+      return EXIT_FAILURE;
+    }
     gk_csr_Free(&mat);
     mat = smat;
 

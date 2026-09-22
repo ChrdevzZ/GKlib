@@ -20,29 +20,21 @@ can be used to define other memory allocation routines.
 static GKLIB_THREAD_LOCAL gk_mcore_t *gkmcore = NULL;
 
 
-static int gk_gkmcoreFind(gk_mcore_t *mcore, void *ptr, size_t *r_mop)
+static int gk_gkmcoreFindQuiet(gk_mcore_t *mcore, void *ptr, size_t *r_mop)
 {
   size_t i;
 
   for (i=mcore->cmop; i>0; ) {
     i--;
-    if (mcore->mops[i].type == GK_MOPT_MARK) {
-      gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
+    if (mcore->mops[i].type == GK_MOPT_MARK)
       return 0;
-    }
-
-    if (mcore->mops[i].ptr == ptr) {
-      if (mcore->mops[i].type != GK_MOPT_HEAP) {
-        gk_errexit(SIGMEM, "Trying to locate a non-HEAP mop.\n");
-        return 0;
-      }
-
+    if (mcore->mops[i].ptr == ptr &&
+        mcore->mops[i].type == GK_MOPT_HEAP) {
       *r_mop = i;
       return 1;
     }
   }
 
-  gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
   return 0;
 }
 
@@ -80,10 +72,42 @@ static void gk_gkmcoreUpdateRealloc(gk_mcore_t *mcore, size_t mop,
 }
 
 
-void *gk_realloc_mcore(void *oldptr, size_t nbytes, char *msg)
+/*************************************************************************/
+/*! Checks whether a new tracked heap allocation fits every statistic. */
+/*************************************************************************/
+static int gk_gkmcoreCanAdd(gk_mcore_t *mcore, size_t nbytes)
+{
+  return nbytes <= (size_t)PTRDIFF_MAX &&
+      mcore->num_hallocs < SIZE_MAX &&
+      mcore->size_hallocs <= SIZE_MAX-nbytes &&
+      mcore->cur_hallocs <= SIZE_MAX-nbytes;
+}
+
+
+/*************************************************************************/
+/*! Checks a tracked reallocation without changing its record or counters.
+
+    Shrinks always fit the current-byte counter. Growth is accepted only when
+    the delta and cumulative allocation statistics remain representable.
+*/
+/*************************************************************************/
+static int gk_gkmcoreCanRealloc(gk_mcore_t *mcore, size_t mop,
+    size_t nbytes)
+{
+  size_t oldnbytes = mcore->mops[mop].nbytes;
+
+  return nbytes <= (size_t)PTRDIFF_MAX &&
+      mcore->num_hallocs < SIZE_MAX &&
+      mcore->size_hallocs <= SIZE_MAX-nbytes &&
+      (nbytes <= oldnbytes ||
+       mcore->cur_hallocs <= SIZE_MAX-(nbytes-oldnbytes));
+}
+
+
+void *gk_realloc_mcore(void *oldptr, size_t nbytes, const char *msg)
 {
   void *ptr;
-  int had_oldptr = (oldptr != NULL);
+  int had_oldptr = (oldptr != NULL), saved_errno;
   int tracked = 0;
   size_t mop = 0;
 
@@ -91,22 +115,41 @@ void *gk_realloc_mcore(void *oldptr, size_t nbytes, char *msg)
     nbytes++;
 
   if (gkmcore != NULL) {
-    if (had_oldptr)
+    if (had_oldptr) {
       tracked = gk_gkmcoreFindAny(gkmcore, oldptr, &mop);
+      if (tracked && !gk_gkmcoreCanRealloc(gkmcore, mop, nbytes)) {
+        errno = EOVERFLOW;
+        gk_errexit(SIGMEM, "***Memory allocation statistics overflow.");
+        errno = EOVERFLOW;
+        return NULL;
+      }
+    }
+    else if (!gk_gkmcoreCanAdd(gkmcore, nbytes)) {
+      errno = EOVERFLOW;
+      gk_errexit(SIGMEM, "***Memory allocation statistics overflow.");
+      errno = EOVERFLOW;
+      return NULL;
+    }
     else if (!gk_gkmcoreEnsureCapacity(gkmcore)) {
+      saved_errno = errno != 0 ? errno : ENOMEM;
       fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
       fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
+      errno = saved_errno;
       gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.");
+      errno = saved_errno;
       return NULL;
     }
   }
 
   ptr = (void *)realloc(oldptr, nbytes);
   if (ptr == NULL) {
+    saved_errno = errno != 0 ? errno : ENOMEM;
     fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
     fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
+    errno = saved_errno;
     gk_errexit(SIGMEM, "***Memory realloc failed for %s. " "Requested size: %zu bytes",
         msg, nbytes);
+    errno = saved_errno;
     return NULL;
   }
 
@@ -164,19 +207,44 @@ GK_MKALLOC(gk_idxkv, gk_idxkv_t)
 /*************************************************************************/
 void gk_AllocMatrix(void ***r_matrix, size_t elmlen, size_t ndim1, size_t ndim2)
 {
-  size_t i, j;
+  int saved_errno;
+  size_t i, j, matrixbytes, rowbytes=0;
   void **matrix;
 
+  if (r_matrix == NULL) {
+    errno = EINVAL;
+    gk_errexit(SIGERR, "gk_AllocMatrix: output pointer is NULL");
+    errno = EINVAL;
+    return;
+  }
   *r_matrix = NULL;
 
-  if ((matrix = (void **)gk_malloc(ndim1*sizeof(void *), "gk_AllocMatrix: matrix")) == NULL)
+  if (!gk_size_mul(ndim1, sizeof(void *), &matrixbytes) ||
+      (ndim1 != 0 && !gk_size_mul(ndim2, elmlen, &rowbytes))) {
+    gk_errexit(SIGMEM, "gk_AllocMatrix: matrix size overflow");
+    errno = EOVERFLOW;
     return;
+  }
+
+  matrix = (void **)gk_malloc_nosignal(matrixbytes);
+  if (matrix == NULL) {
+    saved_errno = errno != 0 ? errno : ENOMEM;
+    errno = saved_errno;
+    gk_errexit(SIGMEM, "gk_AllocMatrix: matrix allocation failed");
+    errno = saved_errno;
+    return;
+  }
 
   for (i=0; i<ndim1; i++) {
-    if ((matrix[i] = (void *)gk_malloc(ndim2*elmlen, "gk_AllocMatrix: matrix[i]")) == NULL) {
+    matrix[i] = gk_malloc_nosignal(rowbytes);
+    if (matrix[i] == NULL) {
+      saved_errno = errno != 0 ? errno : ENOMEM;
       for (j=0; j<i; j++) 
         gk_free((void **)&matrix[j], LTERM);
       gk_free((void **)&matrix, LTERM);
+      errno = saved_errno;
+      gk_errexit(SIGMEM, "gk_AllocMatrix: row allocation failed");
+      errno = saved_errno;
       return;
     }
   }
@@ -194,6 +262,14 @@ void gk_FreeMatrix(void ***r_matrix, size_t ndim1, size_t ndim2)
   size_t i;
   void **matrix;
 
+  (void)ndim2;
+
+  if (r_matrix == NULL) {
+    errno = EINVAL;
+    gk_errexit(SIGERR, "gk_FreeMatrix: output pointer is NULL");
+    errno = EINVAL;
+    return;
+  }
   if ((matrix = *r_matrix) == NULL)
     return;
 
@@ -252,27 +328,29 @@ void gk_malloc_cleanup(int showstats)
     * It records allocations when memory tracking is active.
 */
 /**************************************************************************/
-void *gk_malloc(size_t nbytes, char *msg)
+void *gk_malloc_nosignal(size_t nbytes)
 {
   void *ptr=NULL;
 
   if (nbytes == 0)
     nbytes++;  /* Force mallocs to actually allocate some memory */
 
-  if (gkmcore != NULL && !gk_gkmcoreEnsureCapacity(gkmcore)) {
-    fprintf(stderr, "   Current memory used:  %10zu bytes\n", gk_GetCurMemoryUsed());
-    fprintf(stderr, "   Maximum memory used:  %10zu bytes\n", gk_GetMaxMemoryUsed());
-    gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.");
-    return NULL;
+  if (gkmcore != NULL) {
+    if (!gk_gkmcoreCanAdd(gkmcore, nbytes)) {
+      errno = EOVERFLOW;
+      return NULL;
+    }
+    if (!gk_gkmcoreEnsureCapacity(gkmcore)) {
+      if (errno == 0)
+        errno = ENOMEM;
+      return NULL;
+    }
   }
 
   ptr = (void *)malloc(nbytes);
 
   if (ptr == NULL) {
-    fprintf(stderr, "   Current memory used:  %10zu bytes\n", gk_GetCurMemoryUsed());
-    fprintf(stderr, "   Maximum memory used:  %10zu bytes\n", gk_GetMaxMemoryUsed());
-    gk_errexit(SIGMEM, "***Memory allocation failed for %s. Requested size: %zu bytes", 
-        msg, nbytes);
+    errno = ENOMEM;
     return NULL;
   }
 
@@ -284,10 +362,32 @@ void *gk_malloc(size_t nbytes, char *msg)
 }
 
 
-/*************************************************************************
-* This function is my wrapper around realloc
-**************************************************************************/
-void *gk_realloc(void *oldptr, size_t nbytes, char *msg)
+/*************************************************************************/
+/*! Reports a failed allocation after the no-signal tracker path returns. */
+/*************************************************************************/
+void *gk_malloc(size_t nbytes, const char *msg)
+{
+  void *ptr;
+  int saved_errno;
+
+  ptr = gk_malloc_nosignal(nbytes);
+  if (ptr == NULL) {
+    saved_errno = errno != 0 ? errno : ENOMEM;
+    fprintf(stderr, "   Current memory used:  %10zu bytes\n", gk_GetCurMemoryUsed());
+    fprintf(stderr, "   Maximum memory used:  %10zu bytes\n", gk_GetMaxMemoryUsed());
+    errno = saved_errno;
+    gk_errexit(SIGMEM, "***Memory allocation failed for %s. Requested size: %zu bytes",
+        msg, nbytes);
+    errno = saved_errno;
+  }
+  return ptr;
+}
+
+
+/*************************************************************************/
+/*! Reallocates tracked storage without invoking the signal error path. */
+/*************************************************************************/
+void *gk_realloc_nosignal(void *oldptr, size_t nbytes)
 {
   void *ptr=NULL;
   int had_oldptr;
@@ -299,13 +399,22 @@ void *gk_realloc(void *oldptr, size_t nbytes, char *msg)
 
   if (gkmcore != NULL) {
     if (had_oldptr) {
-      if (!gk_gkmcoreFind(gkmcore, oldptr, &mop))
+      if (!gk_gkmcoreFindQuiet(gkmcore, oldptr, &mop)) {
+        errno = EINVAL;
         return NULL;
+      }
+      if (!gk_gkmcoreCanRealloc(gkmcore, mop, nbytes)) {
+        errno = EOVERFLOW;
+        return NULL;
+      }
+    }
+    else if (!gk_gkmcoreCanAdd(gkmcore, nbytes)) {
+      errno = EOVERFLOW;
+      return NULL;
     }
     else if (!gk_gkmcoreEnsureCapacity(gkmcore)) {
-      fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
-      fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
-      gk_errexit(SIGMEM, "***Memory allocation for gkmcore failed.");
+      if (errno == 0)
+        errno = ENOMEM;
       return NULL;
     }
   }
@@ -313,10 +422,7 @@ void *gk_realloc(void *oldptr, size_t nbytes, char *msg)
   ptr = (void *)realloc(oldptr, nbytes);
 
   if (ptr == NULL) {
-    fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
-    fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
-    gk_errexit(SIGMEM, "***Memory realloc failed for %s. " "Requested size: %zu bytes", 
-        msg, nbytes);
+    errno = ENOMEM;
     return NULL;
   }
 
@@ -332,21 +438,70 @@ void *gk_realloc(void *oldptr, size_t nbytes, char *msg)
 }
 
 
-static int gk_freePointer(void **ptr)
+/*************************************************************************
+* This function is my wrapper around realloc
+**************************************************************************/
+void *gk_realloc(void *oldptr, size_t nbytes, const char *msg)
 {
-  /* Leave ownership with the caller when the active tracker rejects it. */
-  if (*ptr != NULL) {
-    if (gkmcore != NULL) {
-      size_t cmop = gkmcore->cmop;
+  void *ptr;
+  int saved_errno;
 
-      gk_gkmcoreDel(gkmcore, *ptr);
-      if (gkmcore->cmop == cmop)
+  ptr = gk_realloc_nosignal(oldptr, nbytes);
+  if (ptr == NULL) {
+    saved_errno = errno != 0 ? errno : ENOMEM;
+    fprintf(stderr, "   Maximum memory used: %10zu bytes\n", gk_GetMaxMemoryUsed());
+    fprintf(stderr, "   Current memory used: %10zu bytes\n", gk_GetCurMemoryUsed());
+    errno = saved_errno;
+    gk_errexit(saved_errno == EINVAL ? SIGERR : SIGMEM,
+        "***Memory realloc failed for %s. Requested size: %zu bytes",
+        msg, nbytes);
+    errno = saved_errno;
+  }
+  return ptr;
+}
+
+
+int gk_free_nosignal(void **r_ptr)
+{
+  size_t mop;
+
+  if (r_ptr == NULL) {
+    errno = EINVAL;
+    return 0;
+  }
+
+  if (*r_ptr != NULL) {
+    if (gkmcore != NULL) {
+      if (!gk_gkmcoreFindQuiet(gkmcore, *r_ptr, &mop)) {
+        errno = EINVAL;
         return 0;
+      }
+      gkmcore->cur_hallocs -= gkmcore->mops[mop].nbytes;
+      gkmcore->mops[mop] = gkmcore->mops[--gkmcore->cmop];
     }
 
-    free(*ptr);
+    free(*r_ptr);
   }
-  *ptr = NULL;
+  *r_ptr = NULL;
+
+  return 1;
+}
+
+
+static int gk_freePointer(void **ptr)
+{
+  int saved_errno;
+  void *value;
+
+  value = ptr == NULL ? NULL : *ptr;
+
+  if (!gk_free_nosignal(ptr)) {
+    saved_errno = errno != 0 ? errno : EINVAL;
+    errno = saved_errno;
+    gk_errexit(SIGERR, "Could not free pointer %p\n", value);
+    errno = saved_errno;
+    return 0;
+  }
 
   return 1;
 }
@@ -405,14 +560,43 @@ size_t gk_GetMaxMemoryUsed(void)
 /*************************************************************************/
 void gk_GetVMInfo(size_t *vmsize, size_t *vmrss)
 {
+  int failed=0, saved_errno=0;
   FILE *fp;
   char fname[1024];
+  size_t parsed_vmsize, parsed_vmrss;
+
+  if (vmsize == NULL || vmrss == NULL) {
+    errno = EINVAL;
+    gk_errexit(SIGERR, "gk_GetVMInfo: output pointers must not be NULL");
+    errno = EINVAL;
+    return;
+  }
+  *vmsize = 0;
+  *vmrss = 0;
 
   sprintf(fname, "/proc/%d/statm", getpid());
   fp = gk_fopen(fname, "r", "proc/pid/statm");
-  if (fscanf(fp, "%zu %zu", vmsize, vmrss) != 2)
-    errexit("Failed to read to values from %s\n", fname);
-  gk_fclose(fp);
+  if (fp == NULL)
+    return;
+  if (fscanf(fp, "%zu %zu", &parsed_vmsize, &parsed_vmrss) != 2) {
+    saved_errno = errno != 0 ? errno : EIO;
+    failed = 1;
+  }
+  if (fclose(fp) != 0) {
+    if (!failed)
+      saved_errno = errno != 0 ? errno : EIO;
+    failed = 1;
+  }
+  if (failed) {
+    errno = saved_errno;
+    gk_errexit(saved_errno == ENOMEM || saved_errno == EOVERFLOW ?
+        SIGMEM : SIGERR, "Failed to read values from %s", fname);
+    errno = saved_errno;
+    return;
+  }
+
+  *vmsize = parsed_vmsize;
+  *vmrss = parsed_vmrss;
 
   /*
   *vmsize *= sysconf(_SC_PAGESIZE);
@@ -429,19 +613,31 @@ void gk_GetVMInfo(size_t *vmsize, size_t *vmrss)
 /*************************************************************************/
 size_t gk_GetProcVmPeak(void)
 {
+  int read_failed;
   FILE *fp;
-  char line[128];
+  char *endptr, line[128];
+  uintmax_t value;
   size_t vmpeak=0;
 
   if (gk_fexists("/proc/self/status")) {
     fp = gk_fopen("/proc/self/status", "r", "proc/self/status");
+    if (fp == NULL)
+      return 0;
     while (fgets(line, 128, fp) != NULL) {
       if (strncmp(line, "VmPeak:", 7) == 0) {
-        vmpeak = atoll(line+8)*1024;
+        errno = 0;
+        value = strtoumax(line+7, &endptr, 10);
+        if (endptr != line+7 && errno != ERANGE &&
+            value <= SIZE_MAX/1024)
+          vmpeak = (size_t)value*1024;
         break;
       }
     }
-    gk_fclose(fp);
+    read_failed = ferror(fp);
+    if (fclose(fp) != 0)
+      read_failed = 1;
+    if (read_failed)
+      vmpeak = 0;
   }
 
   return vmpeak;

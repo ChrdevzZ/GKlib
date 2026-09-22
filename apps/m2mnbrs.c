@@ -10,6 +10,9 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+#include "app_io.h"
+
 /*************************************************************************/
 /*! Data structures for the code */
 /*************************************************************************/
@@ -111,7 +114,7 @@ static char helpstr[][100] =
 /*! Function prototypes */
 /*************************************************************************/
 params_t *parse_cmdline(int argc, char *argv[]);
-void FindNeighbors(params_t *params, gk_csr_t *qmat, gk_csr_t *cmat);
+int FindNeighbors(params_t *params, gk_csr_t *qmat, gk_csr_t *cmat);
 
 
 /*************************************************************************/
@@ -146,15 +149,15 @@ params_t *parse_cmdline(int argc, char *argv[])
         break;
 
       case CMD_NNBRS:
-        if (gk_optarg) params->nnbrs = atoi(gk_optarg);
+        params->nnbrs = gk_app_parse_int(gk_optarg, "nnbrs");
         break;
 
       case CMD_MINSIM:
-        if (gk_optarg) params->minsim = atof(gk_optarg);
+        params->minsim = gk_app_parse_float(gk_optarg, "minsim");
         break;
 
       case CMD_VERBOSITY:
-        if (gk_optarg) params->verbosity = atoi(gk_optarg);
+        params->verbosity = gk_app_parse_int(gk_optarg, "verbosity");
         break;
 
       case CMD_HELP:
@@ -171,7 +174,7 @@ params_t *parse_cmdline(int argc, char *argv[])
   }
 
   /* Get the input/output file info */
-  if (argc-gk_optind < 1) {
+  if (argc-gk_optind < 2 || argc-gk_optind > 3) {
     printf("Missing input/output file info.\n  Use %s -help for a summary of the options.\n", argv[0]);
     exit(EXIT_FAILURE);
   }
@@ -202,6 +205,8 @@ int main(int argc, char *argv[])
 
   qmat = gk_csr_Read(params->qfile, GK_CSR_FMT_CSR, 1, 0);
   cmat = gk_csr_Read(params->cfile, GK_CSR_FMT_CSR, 1, 0);
+  if (qmat == NULL || cmat == NULL)
+    return EXIT_FAILURE;
 
 
   printf("********************************************************************************\n");
@@ -221,7 +226,8 @@ int main(int argc, char *argv[])
 
   gk_startwctimer(params->timer_global);
 
-  FindNeighbors(params, qmat, cmat);
+  if (!FindNeighbors(params, qmat, cmat))
+    rc = EXIT_FAILURE;
 
   gk_stopwctimer(params->timer_global);
 
@@ -235,7 +241,7 @@ int main(int argc, char *argv[])
   gk_csr_Free(&qmat);
   gk_csr_Free(&cmat);
 
-  exit(rc);
+  return rc;
 }
 
 
@@ -243,9 +249,11 @@ int main(int argc, char *argv[])
 /*! Reads and computes the neighbors of each query document against the
     collection of documents */
 /**************************************************************************/
-void FindNeighbors(params_t *params, gk_csr_t *qmat, gk_csr_t *cmat)
+int FindNeighbors(params_t *params, gk_csr_t *qmat, gk_csr_t *cmat)
 {
   int iQ, iH, nhits;
+  int rc=1;
+  char *output_tempname=NULL;
   int32_t *marker;
   gk_fkv_t *hits, *cand;
   FILE *fpout;
@@ -264,13 +272,22 @@ void FindNeighbors(params_t *params, gk_csr_t *qmat, gk_csr_t *cmat)
   /* compute the row norms */
   gk_csr_ComputeSquaredNorms(cmat, GK_CSR_ROW);
 
-  /* create the output file */
-  fpout = (params->outfile ? gk_fopen(params->outfile, "w", "FindNeighbors: fpout") : NULL);
-
   /* allocate memory for the necessary working arrays */
   hits   = gk_fkvmalloc(cmat->nrows, "FindNeighbors: hits");
   marker = gk_i32smalloc(cmat->nrows, -1, "FindNeighbors: marker");
   cand   = gk_fkvmalloc(cmat->nrows, "FindNeighbors: cand");
+  if (hits == NULL || marker == NULL || cand == NULL) {
+    gk_free((void **)&hits, &marker, &cand, LTERM);
+    return 0;
+  }
+
+  /* create the output file after all fallible allocations have completed */
+  fpout = (params->outfile ? gk_app_open_output(params->outfile, "w",
+      &output_tempname) : NULL);
+  if (params->outfile != NULL && fpout == NULL) {
+    gk_free((void **)&hits, &marker, &cand, LTERM);
+    return 0;
+  }
 
 
   /* find the best neighbors for each query document */
@@ -297,8 +314,11 @@ void FindNeighbors(params_t *params, gk_csr_t *qmat, gk_csr_t *cmat)
 
 
   /* cleanup and exit */
-  if (fpout) gk_fclose(fpout);
+  if (fpout != NULL &&
+      !gk_app_finish_output(fpout, &output_tempname, params->outfile))
+    rc = 0;
 
   gk_free((void **)&hits, &marker, &cand, LTERM);
+  return rc;
 }
 

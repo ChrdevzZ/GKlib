@@ -51,6 +51,39 @@ static int check_replacement(void)
 }
 
 
+static int check_replacement_invalid_arguments(void)
+{
+  char *output = (char *)1;
+  int valid;
+
+  gk_set_exit_on_error(0);
+  valid = gk_strstr_replace(NULL, (char *)"x", (char *)"y",
+                           (char *)"", &output) == 0 &&
+          output == NULL;
+  output = (char *)1;
+  valid = valid &&
+      gk_strstr_replace((char *)"x", NULL, (char *)"y",
+                        (char *)"", &output) == 0 &&
+      output == NULL;
+  output = (char *)1;
+  valid = valid &&
+      gk_strstr_replace((char *)"x", (char *)"x", NULL,
+                        (char *)"", &output) == 0 &&
+      output == NULL;
+  output = (char *)1;
+  valid = valid &&
+      gk_strstr_replace((char *)"x", (char *)"x", (char *)"y",
+                        NULL, &output) == 0 &&
+      output == NULL;
+  valid = valid &&
+      gk_strstr_replace((char *)"x", (char *)"x", (char *)"y",
+                        (char *)"", NULL) == 0;
+  gk_set_exit_on_error(1);
+
+  return valid;
+}
+
+
 static int check_getopt_w(void)
 {
   struct gk_option long_options[] = {
@@ -105,8 +138,8 @@ static int check_memory_tracking(void)
   if (!gk_malloc_init())
     return 0;
 
-  first = gk_malloc(31, (char *)"first tracked allocation");
-  second = gk_malloc(47, (char *)"second tracked allocation");
+  first = gk_malloc(31, "first tracked allocation");
+  second = gk_malloc(47, "second tracked allocation");
   valid = first != NULL && second != NULL && gk_GetCurMemoryUsed() == 78;
   gk_free(&first, &second, LTERM);
   valid = valid && first == NULL && second == NULL &&
@@ -114,6 +147,35 @@ static int check_memory_tracking(void)
   gk_malloc_cleanup(0);
 
   return valid;
+}
+
+
+static int check_tokenizer(void)
+{
+  gk_Tokens_t tokens;
+
+  tokens.ntoks = -1;
+  tokens.strbuf = NULL;
+  tokens.list = NULL;
+  gk_strtokenize((char *)" alpha,,beta ", (char *)", ", &tokens);
+  if (tokens.ntoks != 2 || tokens.list == NULL ||
+      strcmp(tokens.list[0], "alpha") != 0 ||
+      strcmp(tokens.list[1], "beta") != 0) {
+    gk_freetokenslist(&tokens);
+    return 0;
+  }
+  gk_freetokenslist(&tokens);
+  if (tokens.list != NULL || tokens.strbuf != NULL)
+    return 0;
+
+  tokens.ntoks = 7;
+  tokens.strbuf = (char *)1;
+  tokens.list = (char **)1;
+  gk_set_exit_on_error(0);
+  gk_strtokenize(NULL, (char *)",", &tokens);
+  gk_set_exit_on_error(1);
+
+  return tokens.ntoks == 0 && tokens.strbuf == NULL && tokens.list == NULL;
 }
 
 
@@ -132,6 +194,8 @@ int main(void)
 
   if (!check_memory_tracking())
     return 16;
+  if (!check_tokenizer())
+    return 17;
 
   values = gk_imalloc(3, (char *)"gklib-api-test");
   values[0] = 3;
@@ -162,6 +226,8 @@ int main(void)
 
   if (!check_replacement())
     return 15;
+  if (!check_replacement_invalid_arguments())
+    return 18;
 
   matrix = gk_csr_Create();
   if (matrix == NULL)
@@ -184,10 +250,10 @@ int main(void)
   gk_fclose(stream);
   remove("gklib-api-test.tmp");
   if (strcmp(line, "GKlib file IO\n") != 0) {
-    gk_free((void **)&line, LTERM);
+    free(line);
     return 10;
   }
-  gk_free((void **)&line, LTERM);
+  free(line);
 
   gk_optind = 1;
   gk_opterr = 0;

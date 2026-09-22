@@ -34,16 +34,57 @@ int template_consumer_run(void)
   int ptr[3], ind[3];
   int top2 = -1;
   int *allocated;
+  int **matrix;
   template_pq_t queue;
+  template_pq_t *queue1;
   template_pq2_t *queue2;
 
+  gk_seq_free(NULL);
+
   result |= template_blas_sum(3, values, 1) != 6;
-  allocated = template_int_smalloc(3, 7, (char *)"template consumer");
+  allocated = template_int_smalloc(3, 7, "template consumer");
   result |= allocated == NULL;
   if (allocated != NULL) {
     result |= allocated[0] != 7 || allocated[2] != 7;
     gk_free((void **)&allocated, LTERM);
   }
+
+  matrix = template_int_AllocMatrix(2, 3, 5, "template matrix");
+  result |= matrix == NULL;
+  if (matrix != NULL) {
+    result |= matrix[0][0] != 5 || matrix[1][2] != 5;
+    template_int_FreeMatrix(&matrix, 2, 3);
+  }
+
+  errno = 0;
+  gk_set_exit_on_error(0);
+  allocated = template_int_malloc(SIZE_MAX/sizeof(int)+1,
+      "template overflow");
+  gk_set_exit_on_error(1);
+  result |= allocated != NULL || errno != EOVERFLOW;
+  if (allocated != NULL)
+    gk_free((void **)&allocated, LTERM);
+
+  errno = 0;
+  gk_set_exit_on_error(0);
+  queue1 = template_pq_Create(SIZE_MAX);
+  gk_set_exit_on_error(1);
+  result |= queue1 != NULL || errno != EOVERFLOW;
+  template_pq_Destroy(queue1);
+
+  errno = 0;
+  gk_set_exit_on_error(0);
+  template_pq_Init(NULL, 3);
+  gk_set_exit_on_error(1);
+  result |= errno != EINVAL;
+
+  memset(&queue, 0xff, sizeof(queue));
+  gk_set_exit_on_error(0);
+  template_pq_Init(&queue, SIZE_MAX);
+  gk_set_exit_on_error(1);
+  result |= queue.nnodes != 0 || queue.maxnodes != 0 ||
+      queue.heap != NULL || queue.locator != NULL;
+  template_pq_Free(&queue);
 
   template_pq_Init(&queue, 3);
   result |= template_pq_Insert(&queue, 0, 3) != 0;

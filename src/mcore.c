@@ -12,25 +12,52 @@
 #include "memory_internal.h"
 
 
+/*************************************************************************/
+/*! Checks whether an mcore allocation can be recorded without overflow.
+
+    The check does not mutate allocation counters. Mark records consume no
+    bytes; core and heap records are checked against their respective totals.
+*/
+/*************************************************************************/
+static int gk_mcoreCanAdd(gk_mcore_t *mcore, int type, size_t nbytes)
+{
+  if (nbytes > (size_t)PTRDIFF_MAX)
+    return 0;
+  if (type == GK_MOPT_MARK)
+    return 1;
+
+  if (type == GK_MOPT_CORE) {
+    return mcore->num_callocs < SIZE_MAX &&
+        mcore->size_callocs <= SIZE_MAX-nbytes &&
+        mcore->cur_callocs <= SIZE_MAX-nbytes;
+  }
+
+  return mcore->num_hallocs < SIZE_MAX &&
+      mcore->size_hallocs <= SIZE_MAX-nbytes &&
+      mcore->cur_hallocs <= SIZE_MAX-nbytes;
+}
+
+
 static int gk_mcoreEnsureCapacity(gk_mcore_t *mcore)
 {
   gk_mop_t *mops;
-  size_t nmops;
+  size_t nbytes, nmops;
 
   if (mcore->cmop < mcore->nmops)
     return 1;
 
-  if (mcore->nmops > SIZE_MAX/2) {
+  if (mcore->nmops == 0)
+    nmops = 2048;
+  else if (!gk_size_add(mcore->nmops, mcore->nmops, &nmops)) {
     gk_errexit(SIGMEM, "***Memory allocation for mcore failed.\n");
     return 0;
   }
-  nmops = (mcore->nmops == 0 ? 2048 : 2*mcore->nmops);
-  if (nmops > SIZE_MAX/sizeof(gk_mop_t)) {
+  if (!gk_size_mul(nmops, sizeof(gk_mop_t), &nbytes)) {
     gk_errexit(SIGMEM, "***Memory allocation for mcore failed.\n");
     return 0;
   }
 
-  mops = (gk_mop_t *)gk_realloc_mcore(mcore->mops, nmops*sizeof(gk_mop_t),
+  mops = (gk_mop_t *)gk_realloc_mcore(mcore->mops, nbytes,
       "gk_mcoreEnsureCapacity: mcore->mops");
   if (mops == NULL)
     return 0;
@@ -78,28 +105,43 @@ static void gk_mcoreAddReserved(gk_mcore_t *mcore, int type,
 /*************************************************************************/
 gk_mcore_t *gk_mcoreCreate(size_t coresize)
 {
+  int saved_errno;
   gk_mcore_t *mcore;
 
-  mcore = (gk_mcore_t *)gk_malloc(sizeof(gk_mcore_t), "gk_mcoreCreate: mcore");
-  if (mcore == NULL)
+  mcore = (gk_mcore_t *)gk_malloc_nosignal(sizeof(gk_mcore_t));
+  if (mcore == NULL) {
+    saved_errno = errno != 0 ? errno : ENOMEM;
+    errno = saved_errno;
+    gk_errexit(SIGMEM, "gk_mcoreCreate: mcore allocation failed");
+    errno = saved_errno;
     return NULL;
+  }
   memset(mcore, 0, sizeof(gk_mcore_t));
 
   mcore->coresize = coresize;
   mcore->corecpos = 0;
 
-  mcore->core = (coresize == 0 ? NULL : gk_malloc(mcore->coresize, "gk_mcoreCreate: core"));
+  mcore->core = (coresize == 0 ? NULL : gk_malloc_nosignal(mcore->coresize));
   if (coresize != 0 && mcore->core == NULL) {
+    saved_errno = errno != 0 ? errno : ENOMEM;
     gk_free((void **)&mcore, LTERM);
+    errno = saved_errno;
+    gk_errexit(SIGMEM, "gk_mcoreCreate: core allocation failed");
+    errno = saved_errno;
     return NULL;
   }
 
   /* allocate the memory for keeping track of malloc ops */
   mcore->nmops = 2048;
   mcore->cmop  = 0;
-  mcore->mops  = (gk_mop_t *)gk_malloc(mcore->nmops*sizeof(gk_mop_t), "gk_mcoreCreate: mcore->mops");
+  mcore->mops  = (gk_mop_t *)gk_malloc_array_nosignal(
+      mcore->nmops, sizeof(gk_mop_t));
   if (mcore->mops == NULL) {
+    saved_errno = errno != 0 ? errno : ENOMEM;
     gk_free((void **)&mcore->core, &mcore, LTERM);
+    errno = saved_errno;
+    gk_errexit(SIGMEM, "gk_mcoreCreate: mops allocation failed");
+    errno = saved_errno;
     return NULL;
   }
 
@@ -211,14 +253,31 @@ void gk_gkmcoreDestroy(gk_mcore_t **r_mcore, int showstats)
 void *gk_mcoreMalloc(gk_mcore_t *mcore, size_t nbytes)
 {
   void *ptr;
+  int type;
+  size_t padding;
 
   /* pad to make pointers 8-byte aligned */
-  nbytes += (nbytes%8 == 0 ? 0 : 8 - nbytes%8);
+  padding = (nbytes%8 == 0 ? 0 : 8 - nbytes%8);
+  if (!gk_size_add(nbytes, padding, &nbytes)) {
+    gk_errexit(SIGMEM, "gk_mcoreMalloc: aligned size overflow");
+    errno = EOVERFLOW;
+    return NULL;
+  }
+
+  type = (mcore->corecpos <= mcore->coresize &&
+      nbytes < mcore->coresize-mcore->corecpos ?
+      GK_MOPT_CORE : GK_MOPT_HEAP);
+  if (!gk_mcoreCanAdd(mcore, type, nbytes)) {
+    errno = EOVERFLOW;
+    gk_errexit(SIGMEM, "gk_mcoreMalloc: allocation size overflow");
+    errno = EOVERFLOW;
+    return NULL;
+  }
 
   if (!gk_mcoreEnsureCapacity(mcore))
     return NULL;
 
-  if (mcore->corecpos + nbytes < mcore->coresize) {
+  if (type == GK_MOPT_CORE) {
     /* service this request from the core */
     ptr = ((char *)mcore->core)+mcore->corecpos;
     mcore->corecpos += nbytes;
@@ -283,7 +342,7 @@ void gk_mcorePop(gk_mcore_t *mcore)
         break; 
 
       case GK_MOPT_CORE: /* core free */
-        if (mcore->corecpos < mcore->mops[mop].nbytes) {
+        if (mcore->corecpos < (size_t)mcore->mops[mop].nbytes) {
           errexit("Internal Error: wspace's core is about to be over-freed [%zu, %zu, %zd]\n",
               mcore->coresize, mcore->corecpos, mcore->mops[mop].nbytes);
           return;
@@ -354,6 +413,13 @@ void gk_mcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr)
     return;
   }
 
+  if (!gk_mcoreCanAdd(mcore, type, nbytes)) {
+    errno = EOVERFLOW;
+    gk_errexit(SIGMEM, "mcore allocation size overflow.");
+    errno = EOVERFLOW;
+    return;
+  }
+
   if (!gk_mcoreEnsureCapacity(mcore))
     return;
 
@@ -370,6 +436,12 @@ void gk_gkmcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr)
 {
   if (type != GK_MOPT_MARK && type != GK_MOPT_HEAP) {
     gk_errexit(SIGMEM, "Incorrect mcore type operation.\n");
+    return;
+  }
+  if (!gk_mcoreCanAdd(mcore, type, nbytes)) {
+    errno = EOVERFLOW;
+    gk_errexit(SIGMEM, "gkmcore allocation size overflow.");
+    errno = EOVERFLOW;
     return;
   }
 
@@ -390,9 +462,10 @@ void gk_gkmcoreAdd(gk_mcore_t *mcore, int type, size_t nbytes, void *ptr)
 /*************************************************************************/
 void gk_mcoreDel(gk_mcore_t *mcore, void *ptr)
 {
-  int i;
+  size_t i;
 
-  for (i=mcore->cmop-1; i>=0; i--) {
+  for (i=mcore->cmop; i>0; ) {
+    i--;
     if (mcore->mops[i].type == GK_MOPT_MARK) {
       gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
       return;
@@ -423,9 +496,10 @@ void gk_mcoreDel(gk_mcore_t *mcore, void *ptr)
 /*************************************************************************/
 void gk_gkmcoreDel(gk_mcore_t *mcore, void *ptr)
 {
-  int i;
+  size_t i;
 
-  for (i=mcore->cmop-1; i>=0; i--) {
+  for (i=mcore->cmop; i>0; ) {
+    i--;
     if (mcore->mops[i].type == GK_MOPT_MARK) {
       gk_errexit(SIGMEM, "Could not find pointer %p in mcore\n", ptr);
       return;

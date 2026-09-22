@@ -19,20 +19,50 @@
 /**************************************************************************/\
 PQT *FPRFX ## Create2(ssize_t maxnodes)\
 {\
-  PQT *queue; \
+  PQT *volatile queue;\
+  volatile int saved_errno;\
+  volatile int signum=0;\
 \
-  if ((queue = (PQT *)gk_malloc(sizeof(PQT), (char *)"gk_pqCreate2: queue")) != NULL) {\
-    memset(queue, 0, sizeof(PQT));\
-    queue->nnodes   = 0;\
-    queue->maxnodes = maxnodes;\
+  queue = (PQT *)gk_malloc(sizeof(PQT), (char *)"gk_pqCreate2: queue");\
+  if (queue == NULL)\
+    return NULL;\
+  memset(queue, 0, sizeof(PQT));\
+  queue->maxnodes = maxnodes;\
+  if (!gk_sigtrap()) {\
+    gk_free((void **)&queue, LTERM);\
+    errno = ENOMEM;\
+    gk_errexit(SIGMEM, "gk_pqCreate2: signal trap unavailable");\
+    errno = ENOMEM;\
+    return NULL;\
+  }\
+  switch (gk_sigcatch()) {\
+    case 0:\
+      break;\
+    case SIGMEM:\
+      signum = SIGMEM;\
+      break;\
+    default:\
+      signum = SIGERR;\
+      break;\
+  }\
+  if (signum == 0) {\
     queue->keys     = KMALLOC(maxnodes, (char *)"gk_pqCreate2: keys");\
-    queue->vals     = VMALLOC(maxnodes, (char *)"gk_pqCreate2: vals");\
-\
-    if (queue->keys == NULL || queue->vals == NULL)\
-      gk_free((void **)&queue->keys, &queue->vals, &queue, LTERM);\
+    if (queue->keys != NULL)\
+      queue->vals = VMALLOC(maxnodes, (char *)"gk_pqCreate2: vals");\
+  }\
+  saved_errno = errno != 0 ? errno : ENOMEM;\
+  gk_siguntrap();\
+  if (queue->keys == NULL || queue->vals == NULL) {\
+    gk_free((void **)&queue->keys, &queue->vals, &queue, LTERM);\
+    errno = saved_errno;\
+  }\
+  if (signum != 0) {\
+    errno = saved_errno;\
+    raise(signum);\
+    errno = saved_errno;\
   }\
 \
-  return queue;\
+  return (PQT *)queue;\
 }\
 \
 \
@@ -186,6 +216,7 @@ int FPRFX ## CheckHeap2(PQT *queue)\
 {\
   ssize_t i;\
   KT *keys=queue->keys;\
+  (void)keys;\
 \
   if (queue->nnodes == 0)\
     return 1;\

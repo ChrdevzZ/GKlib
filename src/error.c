@@ -73,13 +73,16 @@ void gk_set_exit_on_error(int value)
 
 
 /*************************************************************************/
-/*! This function prints an error message and exits  
+/*! This function prints an error message and exits. The caller's errno is
+    preserved.
  */
 /*************************************************************************/
-void errexit(char *f_str,...)
+void errexit(const char *f_str,...)
 {
+  int saved_errno;
   va_list argp;
 
+  saved_errno = errno;
   va_start(argp, f_str);
   vfprintf(stderr, f_str, argp);
   va_end(argp);
@@ -88,21 +91,27 @@ void errexit(char *f_str,...)
         fprintf(stderr,"\n");
   fflush(stderr);
 
+  errno = saved_errno;
   if (gk_exit_on_error)
     exit(-2);
+
+  errno = saved_errno;
 
   /* abort(); */
 }
 
 
 /*************************************************************************/
-/*! This function prints an error message and raises a signum signal
+/*! This function prints an error message and raises a signum signal. The
+    caller's errno is preserved.
  */
 /*************************************************************************/
-void gk_errexit(int signum, char *f_str,...)
+void gk_errexit(int signum, const char *f_str,...)
 {
+  int saved_errno;
   va_list argp;
 
+  saved_errno = errno;
   va_start(argp, f_str);
   vfprintf(stderr, f_str, argp);
   va_end(argp);
@@ -110,8 +119,11 @@ void gk_errexit(int signum, char *f_str,...)
   fprintf(stderr,"\n");
   fflush(stderr);
 
+  errno = saved_errno;
   if (gk_exit_on_error)
     raise(signum);
+
+  errno = saved_errno;
 }
 
 

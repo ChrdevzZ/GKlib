@@ -4,7 +4,6 @@ For current build instructions see [building](building.md). For the fixed
 upstream source, compatibility changes and Unreleased history see
 [fork changes](../FORK_CHANGES.md).
 
-
 Ordinary builds require CMake 3.24 and a supported C compiler. GKlib tests also
 use C++11. Python 3.9 and Git are required only when developer testing is enabled.
 Fortran is needed only by a downstream project that chooses a Fortran link
@@ -31,12 +30,13 @@ upstream source. Keep the existing style without bulk reformatting. There
 are no text-presence or documentation-layout gates in CTest. To exercise
 the documented installation workflows, enable integration testing and run
 the installation and consumer tests directly through CTest. The suite also
-builds and runs a parent-project consumer; selecting PCRE adds C++ package consumption
-independently of whether a Fortran compiler is available.
+builds and runs a parent-project consumer; selecting PCRE adds C++ package
+consumption independently of whether a Fortran compiler is available.
 
 Focused source regressions use deterministic allocation failures to verify
-partial matrix cleanup, DFA and register-pair reallocation ownership, and
-mcore/memory transaction boundaries. The regex fixture also requires an
+typed and generic matrix cleanup, cache/mcore construction, hash-table resize,
+DFA and register-pair reallocation ownership, and tracked-memory transaction
+boundaries. The regex fixture also requires an
 allocation failure to leave the register pair empty, cleanable and retryable,
 failed backtracking-stack pushes to retain the previously committed depth and
 ownership before cleanup, and constrained-state allocation or node-set copy
@@ -50,10 +50,17 @@ variadic arguments, and that rejected mcore deletion, pop and destruction retain
 their records, statistics and caller handle. Internal mcore-stack growth must
 still update an outer frame's owning record when a nested tracker marker is
 active.
-Separate fixtures cover binary readers with omitted counts, the quicksort
-bottom sentinel and removal of allocation bookkeeping before storage is freed.
-The binary-reader fault fixture also forces short reads and verifies that every
-reader closes its stream before either a returning error or signal recovery.
+Separate fixtures cover dynamically grown text readers, all six binary readers,
+the `gk_getline` allocation domain, graph/CSR transforms and formats, sequence
+ownership, string/tokenizer growth, link-safe path removal, failed output commit
+cleanup, the quicksort bottom sentinel and removal of allocation bookkeeping
+before storage is freed.
+Binary fault fixtures force allocation and short-read failures and verify that
+every reader closes its stream before either a returning error or signal
+recovery.
+Installed C99 and C++11 consumers instantiate the public template families
+through ordinary include paths with warnings as errors and execute normal,
+overflow and release paths.
 The public API fixture distinguishes ordinary `gk_getopt` handling of `W;` from
 the exact-match, no-match and missing-argument paths in `gk_getopt_long`.
 

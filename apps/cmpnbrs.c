@@ -11,6 +11,8 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+
 /*************************************************************************/
 /*! Data structures for the code */
 /*************************************************************************/
@@ -124,7 +126,7 @@ params_t *parse_cmdline(int argc, char *argv[])
         break;
 
       case CMD_VERBOSITY:
-        if (gk_optarg) params->verbosity = atoi(gk_optarg);
+        params->verbosity = gk_app_parse_int(gk_optarg, "verbosity");
         break;
 
       case CMD_HELP:
@@ -171,15 +173,32 @@ int main(int argc, char *argv[])
 
   amat = gk_csr_Read(params->afile, GK_CSR_FMT_CSR, 1, 0);
   bmat = gk_csr_Read(params->bfile, GK_CSR_FMT_CSR, 1, 0);
+  if (amat == NULL || bmat == NULL) {
+    gk_csr_Free(&amat);
+    gk_csr_Free(&bmat);
+    return EXIT_FAILURE;
+  }
 
   /* make the matrices of similar dimensions (if neccessary) */
-  GKASSERT(amat->nrows == bmat->nrows);
+  if (amat->nrows != bmat->nrows) {
+    fprintf(stderr, "Input matrices must have the same number of rows.\n");
+    gk_csr_Free(&amat);
+    gk_csr_Free(&bmat);
+    return EXIT_FAILURE;
+  }
   amat->ncols = gk_max(amat->ncols, bmat->ncols);
   bmat->ncols = amat->ncols;
 
   /* create the transpose matrices */
   amatt = gk_csr_Transpose(amat);
   bmatt = gk_csr_Transpose(bmat);
+  if (amatt == NULL || bmatt == NULL) {
+    gk_csr_Free(&amat);
+    gk_csr_Free(&bmat);
+    gk_csr_Free(&amatt);
+    gk_csr_Free(&bmatt);
+    return EXIT_FAILURE;
+  }
 
   printf("********************************************************************************\n");
   printf("cmpnbrs (%d.%d.%d) Copyright 2015, GK.\n", VER_MAJOR, VER_MINOR, VER_SUBMINOR);
@@ -206,7 +225,7 @@ int main(int argc, char *argv[])
   gk_csr_Free(&amatt);
   gk_csr_Free(&bmatt);
 
-  exit(rc);
+  return rc;
 }
 
 

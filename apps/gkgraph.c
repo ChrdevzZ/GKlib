@@ -9,6 +9,8 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+
 
 /*************************************************************************/
 /*! Data structures for the code */
@@ -112,8 +114,8 @@ static char shorthelpstr[][100] = {
 /*************************************************************************/
 /*! Function prototypes */
 /*************************************************************************/
-void test_spmv(params_t *params);
-void test_tc(params_t *params);
+int test_spmv(params_t *params);
+int test_tc(params_t *params);
 void sort_adjacencies(params_t *params, gk_graph_t *graph);
 double compute_spmvstats(params_t *params, gk_graph_t *graph);
 double compute_tcstats(params_t *params, gk_graph_t *graph, int32_t *iperm);
@@ -128,6 +130,40 @@ params_t *parse_cmdline(int argc, char *argv[]);
 
 
 /*************************************************************************/
+/*! Checks the graph invariants required by the reordering test routines.
+
+    In addition to rejecting empty or incomplete graphs, this bounds each
+    degree so the applications' int32_t counting arrays and their terminating
+    sentinel remain representable.
+*/
+/*************************************************************************/
+static int validate_test_graph(gk_graph_t *graph)
+{
+  int32_t i;
+  ssize_t j, nedges;
+
+  if (graph == NULL || graph->nvtxs <= 0 || graph->xadj == NULL ||
+      graph->xadj[0] != 0)
+    return 0;
+  nedges = graph->xadj[graph->nvtxs];
+  if (nedges < 0 || (nedges > 0 && graph->adjncy == NULL))
+    return 0;
+  for (i=0; i<graph->nvtxs; i++) {
+    if (graph->xadj[i] > graph->xadj[i+1] ||
+        graph->xadj[i+1] > nedges ||
+        graph->xadj[i+1]-graph->xadj[i] > INT32_MAX-2)
+      return 0;
+  }
+  for (j=0; j<nedges; j++) {
+    if (graph->adjncy[j] < 0 || graph->adjncy[j] >= graph->nvtxs)
+      return 0;
+  }
+
+  return 1;
+}
+
+
+/*************************************************************************/
 /*! the entry point */
 /**************************************************************************/
 int main(int argc, char *argv[])
@@ -137,14 +173,14 @@ int main(int argc, char *argv[])
   /* get command-line options */
   params = parse_cmdline(argc, argv);
 
-  test_tc(params);
+  return test_tc(params);
 }
 
 
 /*************************************************************************/
 /*! various spmv-related tests */
 /**************************************************************************/
-void test_spmv(params_t *params)
+int test_spmv(params_t *params)
 {
   ssize_t i, j, v;
   gk_graph_t *graph, *pgraph;
@@ -152,6 +188,11 @@ void test_spmv(params_t *params)
 
   /* read the data */
   graph = gk_graph_Read(params->infile, GK_GRAPH_FMT_METIS, -1, -1, 0, 0, 0);
+  if (!validate_test_graph(graph)) {
+    fprintf(stderr, "The input graph is empty or exceeds supported dimensions.\n");
+    gk_graph_Free(&graph);
+    return EXIT_FAILURE;
+  }
 
   /* display some basic stats */
   print_init_info(params, graph);
@@ -216,52 +257,84 @@ void test_spmv(params_t *params)
 
   print_final_info(params);
 
-  return;
+  return EXIT_SUCCESS;
 }
 
 
 /*************************************************************************/
 /*! various tc-related tests */
 /**************************************************************************/
-void test_tc(params_t *params)
+int test_tc(params_t *params)
 {
-  ssize_t i, j, v;
-  gk_graph_t *graph, *pgraph;
-  int32_t *perm, *iperm;
+  ssize_t i, v;
+  double hitrate;
+  gk_graph_t *graph=NULL, *pgraph=NULL;
+  int32_t *perm=NULL, *iperm=NULL;
+  int status=EXIT_FAILURE;
 
   /* read the data */
   graph = gk_graph_Read(params->infile, GK_GRAPH_FMT_METIS, -1, -1, 0, 0, 0);
+  if (!validate_test_graph(graph)) {
+    fprintf(stderr, "The input graph is empty or exceeds supported dimensions.\n");
+    gk_graph_Free(&graph);
+    return EXIT_FAILURE;
+  }
 
   /* display some basic stats */
   print_init_info(params, graph);
 
   perm = reorder_degrees(params, graph);
+  if (perm == NULL)
+    goto cleanup;
   pgraph = gk_graph_Reorder(graph, perm, NULL);
   gk_free((void **)&perm, LTERM);
+  if (pgraph == NULL)
+    goto cleanup;
   sort_adjacencies(params, pgraph);
-  iperm = gk_i32incset(graph->nvtxs, 0, gk_i32malloc(graph->nvtxs, "iperm"));
-  printf("Degrees          TC HitRate: %.4lf\n", compute_tcstats(params, pgraph, iperm));
+  iperm = gk_i32malloc(graph->nvtxs, "iperm");
+  if (iperm == NULL)
+    goto cleanup;
+  gk_i32incset(graph->nvtxs, 0, iperm);
+  hitrate = compute_tcstats(params, pgraph, iperm);
+  if (hitrate < 0.0)
+    goto cleanup;
+  printf("Degrees          TC HitRate: %.4lf\n", hitrate);
 
 
   sort_adjacencies(params, pgraph);
   v = RandomInRange(pgraph->nvtxs);
   gk_graph_ComputeBFSOrdering(pgraph, v, &perm, NULL);
+  if (perm == NULL)
+    goto cleanup;
   for (i=0; i<graph->nvtxs; i++) iperm[perm[i]] = i;
   gk_free((void **)&perm, LTERM);
-  printf("BFS              TC HitRate: %.4lf\n", compute_tcstats(params, pgraph, iperm));
+  hitrate = compute_tcstats(params, pgraph, iperm);
+  if (hitrate < 0.0)
+    goto cleanup;
+  printf("BFS              TC HitRate: %.4lf\n", hitrate);
 
 
   sort_adjacencies(params, pgraph);
   perm = reorder_freqlpn(params, pgraph);
+  if (perm == NULL)
+    goto cleanup;
   for (i=0; i<graph->nvtxs; i++) iperm[perm[i]] = i;
   gk_free((void **)&perm, LTERM);
-  printf("FreqLabelPropN   TC HitRate: %.4lf\n", compute_tcstats(params, pgraph, iperm));
+  hitrate = compute_tcstats(params, pgraph, iperm);
+  if (hitrate < 0.0)
+    goto cleanup;
+  printf("FreqLabelPropN   TC HitRate: %.4lf\n", hitrate);
 
   sort_adjacencies(params, pgraph);
   perm = reorder_freqlpn_db(params, pgraph);
+  if (perm == NULL)
+    goto cleanup;
   for (i=0; i<graph->nvtxs; i++) iperm[perm[i]] = i;
   gk_free((void **)&perm, LTERM);
-  printf("DBFreqLabelPropN TC HitRate: %.4lf\n", compute_tcstats(params, pgraph, iperm));
+  hitrate = compute_tcstats(params, pgraph, iperm);
+  if (hitrate < 0.0)
+    goto cleanup;
+  printf("DBFreqLabelPropN TC HitRate: %.4lf\n", hitrate);
 
 
 #ifdef XXX
@@ -282,12 +355,14 @@ void test_tc(params_t *params)
   gk_free((void **)&perm, LTERM);
 #endif
 
-  gk_free((void **)&iperm, LTERM);
-  gk_graph_Free(&graph);
-
   print_final_info(params);
+  status = EXIT_SUCCESS;
 
-  return;
+cleanup:
+  gk_free((void **)&perm, &iperm, LTERM);
+  gk_graph_Free(&pgraph);
+  gk_graph_Free(&graph);
+  return status;
 }
 
 
@@ -329,11 +404,18 @@ double compute_spmvstats(params_t *params, gk_graph_t *graph)
 
   gk_cache_t *cache = gk_cacheCreate(16, params->lnbits, params->cnbits); /* 8MB total; i7 spec */
 
+  if (cache == NULL)
+    return -1.0;
+
   nvtxs  = graph->nvtxs;
   xadj   = graph->xadj;
   adjncy = graph->adjncy;
 
   vec = gk_i32malloc(nvtxs, "vec");
+  if (vec == NULL) {
+    gk_cacheDestroy(&cache);
+    return -1.0;
+  }
   for (i=0; i<xadj[nvtxs]; i++) {
     gk_cacheLoad(cache, (size_t)(&adjncy[i]));
     gk_cacheLoad(cache, (size_t)(&vec[adjncy[i]]));
@@ -365,8 +447,12 @@ double compute_tcstats(params_t *params, gk_graph_t *graph, int32_t *iperm)
   ssize_t *xadj, *uxadj;
   int32_t *adjncy;
   int32_t l, hmsize, *hmap;
+  size_t degree, maxdegree=0, tablesize=32;
 
   gk_cache_t *cache = gk_cacheCreate(16, params->lnbits, params->cnbits);
+
+  if (cache == NULL)
+    return -1.0;
 
   nvtxs  = graph->nvtxs;
   xadj   = graph->xadj;
@@ -374,6 +460,10 @@ double compute_tcstats(params_t *params, gk_graph_t *graph, int32_t *iperm)
 
   /* determine the starting location of the upper trianglular part */
   uxadj = gk_zmalloc(nvtxs, "uxadj");
+  if (uxadj == NULL) {
+    gk_cacheDestroy(&cache);
+    return -1.0;
+  }
   for (vi=0; vi<nvtxs; vi++) {
     for (ei=xadj[vi], eiend=xadj[vi+1]; ei<eiend && adjncy[ei]<vi; ei++);
     uxadj[vi] = ei;
@@ -387,11 +477,25 @@ double compute_tcstats(params_t *params, gk_graph_t *graph, int32_t *iperm)
 
   /* determine the size of the hash-map and convert it into a format
      that is compatible with a bitwise AND operation */
-  for (hmsize=0, vi=0; vi<nvtxs; vi++)
-    hmsize = gk_max(hmsize, (int32_t)(xadj[vi+1]-uxadj[vi]));
-  for (l=1; hmsize>(1<<l); l++);
-  hmsize = (1<<(l+4))-1;
-  hmap = gk_i32smalloc(hmsize+1, 0, "hmap");
+  for (vi=0; vi<nvtxs; vi++) {
+    degree = (size_t)(xadj[vi+1]-uxadj[vi]);
+    maxdegree = gk_max(maxdegree, degree);
+  }
+  while (tablesize/16 < maxdegree) {
+    if (tablesize > ((size_t)INT32_MAX+1)/2) {
+      gk_free((void **)&uxadj, LTERM);
+      gk_cacheDestroy(&cache);
+      return -1.0;
+    }
+    tablesize *= 2;
+  }
+  hmsize = (int32_t)(tablesize-1);
+  hmap = gk_i32smalloc(tablesize, 0, "hmap");
+  if (hmap == NULL) {
+    gk_free((void **)&uxadj, LTERM);
+    gk_cacheDestroy(&cache);
+    return -1.0;
+  }
 
   for (ntriangles=0, vjj=0; vjj<nvtxs; vjj++) {
     vj = iperm[vjj];
@@ -420,16 +524,24 @@ double compute_tcstats(params_t *params, gk_graph_t *graph, int32_t *iperm)
     gk_cacheLoad(cache, (size_t)(&uxadj[vj]));
     for (ej=xadj[vj], ejend=uxadj[vj]; ej<ejend; ej++) {
       gk_cacheLoad(cache, (size_t)(&adjncy[ej]));
-      gk_cacheLoad(cache, (size_t)(&uxadj[vi]));
       vi = adjncy[ej];
-      for (ei=uxadj[vi]; gk_cacheLoad(cache, (size_t)(&adjncy[ei])) && adjncy[ei]>vj; ei++) {
+      gk_cacheLoad(cache, (size_t)(&uxadj[vi]));
+      for (ei=uxadj[vi], eiend=xadj[vi+1];
+           ei<eiend && gk_cacheLoad(cache, (size_t)(&adjncy[ei])) &&
+           adjncy[ei]>vj; ei++) {
         vk = adjncy[ei];
         for (l=vk&hmsize;
              gk_cacheLoad(cache, (size_t)(&hmap[l])) && hmap[l]!=0 && hmap[l]!=vk;
              l=((l+1)&hmsize));
         gk_cacheLoad(cache, (size_t)(&hmap[l]));
-        if (hmap[l] == vk)
+        if (hmap[l] == vk) {
+          if (ntriangles == INT64_MAX) {
+            gk_free((void **)&uxadj, &hmap, LTERM);
+            gk_cacheDestroy(&cache);
+            return -1.0;
+          }
           ntriangles++;
+        }
       }
     }
 
@@ -445,7 +557,8 @@ double compute_tcstats(params_t *params, gk_graph_t *graph, int32_t *iperm)
       hmap[l] = 0;
     }
   }
-  printf("& compatible hmsize: %"PRId32" #triangles: %"PRIu64"\n", hmsize, ntriangles);
+  printf("& compatible hmsize: %"PRId32" #triangles: %"PRId64"\n",
+      hmsize, ntriangles);
 
   gk_free((void **)&uxadj, &hmap, LTERM);
 
@@ -476,11 +589,17 @@ int32_t *reorder_degrees(params_t *params, gk_graph_t *graph)
   range++;
 
   counts = gk_i32smalloc(range+1, 0, "counts");
+  if (counts == NULL)
+    return NULL;
   for (i=0; i<nvtxs; i++)
     counts[xadj[i+1]-xadj[i]]++;
   MAKECSR(i, range, counts);
 
   perm = gk_i32malloc(nvtxs, "perm");
+  if (perm == NULL) {
+    gk_free((void **)&counts, LTERM);
+    return NULL;
+  }
   for (i=0; i<nvtxs; i++)
     perm[i] = counts[xadj[i+1]-xadj[i]]++;
 
@@ -507,14 +626,22 @@ int32_t *reorder_freqlpn(params_t *params, gk_graph_t *graph)
   xadj   = graph->xadj;
   adjncy = graph->adjncy;
 
-  labels = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "labels"));
+  labels = gk_i32malloc(nvtxs, "labels");
   freq   = gk_i32smalloc(nvtxs, 0, "freq");
-  perm   = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "perm"));
+  perm   = gk_i32malloc(nvtxs, "perm");
+  if (labels == NULL || freq == NULL || perm == NULL) {
+    gk_free((void **)&labels, &freq, &perm, LTERM);
+    return NULL;
+  }
+  gk_i32incset(nvtxs, 0, labels);
+  gk_i32incset(nvtxs, 0, perm);
 
   for (k=0; k<params->niter; k++) {
     gk_i32randArrayPermuteFine(nvtxs, perm, 0);
     for (ii=0; ii<nvtxs; ii++) {
       i = perm[ii];
+      if (xadj[i] == xadj[i+1])
+        continue;
       maxlbl = labels[adjncy[xadj[i]]];
       freq[maxlbl] = 1;
       for (j=xadj[i]+1; j<xadj[i+1]; j++) {
@@ -533,6 +660,10 @@ int32_t *reorder_freqlpn(params_t *params, gk_graph_t *graph)
   }
 
   cand = gk_i32kvmalloc(nvtxs, "cand");
+  if (cand == NULL) {
+    gk_free((void **)&labels, &freq, &perm, LTERM);
+    return NULL;
+  }
   for (i=0; i<nvtxs; i++) {
     cand[i].key = labels[i];
     cand[i].val = i;
@@ -567,10 +698,16 @@ int32_t *reorder_freqlpn_db(params_t *params, gk_graph_t *graph)
   xadj   = graph->xadj;
   adjncy = graph->adjncy;
 
-  labels  = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "labels"));
+  labels  = gk_i32malloc(nvtxs, "labels");
   freq    = gk_i32smalloc(nvtxs, 0, "freq");
-  perm    = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "perm"));
+  perm    = gk_i32malloc(nvtxs, "perm");
   dbucket = gk_i32malloc(nvtxs, "dbucket");
+  if (labels == NULL || freq == NULL || perm == NULL || dbucket == NULL) {
+    gk_free((void **)&labels, &freq, &perm, &dbucket, LTERM);
+    return NULL;
+  }
+  gk_i32incset(nvtxs, 0, labels);
+  gk_i32incset(nvtxs, 0, perm);
 
   for (i=0; i<nvtxs; i++)
     dbucket[i] = ((xadj[i+1]-xadj[i])>>3);
@@ -599,6 +736,10 @@ int32_t *reorder_freqlpn_db(params_t *params, gk_graph_t *graph)
   }
 
   cand = gk_i32kvmalloc(nvtxs, "cand");
+  if (cand == NULL) {
+    gk_free((void **)&labels, &freq, &perm, &dbucket, LTERM);
+    return NULL;
+  }
   for (i=0; i<nvtxs; i++) {
     cand[i].key = labels[i];
     cand[i].val = i;
@@ -631,8 +772,14 @@ int32_t *reorder_minlpn(params_t *params, gk_graph_t *graph)
   xadj   = graph->xadj;
   adjncy = graph->adjncy;
 
-  labels = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "labels"));
-  perm   = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "perm"));
+  labels = gk_i32malloc(nvtxs, "labels");
+  perm   = gk_i32malloc(nvtxs, "perm");
+  if (labels == NULL || perm == NULL) {
+    gk_free((void **)&labels, &perm, LTERM);
+    return NULL;
+  }
+  gk_i32incset(nvtxs, 0, labels);
+  gk_i32incset(nvtxs, 0, perm);
 
   for (k=0; k<params->niter; k++) {
     for (i=0; i<nvtxs; i++) {
@@ -646,6 +793,10 @@ int32_t *reorder_minlpn(params_t *params, gk_graph_t *graph)
   }
 
   cand = gk_i32kvmalloc(nvtxs, "cand");
+  if (cand == NULL) {
+    gk_free((void **)&labels, &perm, LTERM);
+    return NULL;
+  }
   for (i=0; i<nvtxs; i++) {
     cand[i].key = labels[i];
     cand[i].val = i;
@@ -684,9 +835,15 @@ int32_t *reorder_minlpn_db(params_t *params, gk_graph_t *graph)
   xadj   = graph->xadj;
   adjncy = graph->adjncy;
 
-  labels  = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "labels"));
-  perm    = gk_i32incset(nvtxs, 0, gk_i32malloc(nvtxs, "perm"));
+  labels  = gk_i32malloc(nvtxs, "labels");
+  perm    = gk_i32malloc(nvtxs, "perm");
   dbucket = gk_i32malloc(nvtxs, "dbucket");
+  if (labels == NULL || perm == NULL || dbucket == NULL) {
+    gk_free((void **)&labels, &perm, &dbucket, LTERM);
+    return NULL;
+  }
+  gk_i32incset(nvtxs, 0, labels);
+  gk_i32incset(nvtxs, 0, perm);
 
   for (i=0; i<nvtxs; i++)
     dbucket[i] = ((xadj[i+1]-xadj[i])>>3);
@@ -706,6 +863,10 @@ int32_t *reorder_minlpn_db(params_t *params, gk_graph_t *graph)
   }
 
   cand = gk_i32kvmalloc(nvtxs, "cand");
+  if (cand == NULL) {
+    gk_free((void **)&labels, &perm, &dbucket, LTERM);
+    return NULL;
+  }
   for (i=0; i<nvtxs; i++) {
     cand[i].key = labels[i];
     cand[i].val = i;
@@ -787,22 +948,22 @@ params_t *parse_cmdline(int argc, char *argv[])
   while ((c = gk_getopt_long_only(argc, argv, "", long_options, &option_index)) != -1) {
     switch (c) {
       case CMD_LNBITS:
-        if (gk_optarg) params->lnbits = atoi(gk_optarg);
+        params->lnbits = gk_app_parse_int(gk_optarg, "lnbits");
         break;
       case CMD_CNBITS:
-        if (gk_optarg) params->cnbits = atoi(gk_optarg);
+        params->cnbits = gk_app_parse_int(gk_optarg, "cnbits");
         break;
       case CMD_TYPE:
-        if (gk_optarg) params->type = atoi(gk_optarg);
+        params->type = gk_app_parse_int(gk_optarg, "type");
         break;
       case CMD_NITER:
-        if (gk_optarg) params->niter = atoi(gk_optarg);
+        params->niter = gk_app_parse_int(gk_optarg, "niter");
         break;
       case CMD_EPS:
-        if (gk_optarg) params->eps = atof(gk_optarg);
+        params->eps = gk_app_parse_float(gk_optarg, "eps");
         break;
       case CMD_LAMDA:
-        if (gk_optarg) params->lamda = atof(gk_optarg);
+        params->lamda = gk_app_parse_float(gk_optarg, "lamda");
         break;
       case CMD_NOSORT:
         params->nosort = 1;
@@ -814,12 +975,12 @@ params_t *parse_cmdline(int argc, char *argv[])
       case CMD_HELP:
         for (i=0; strlen(helpstr[i]) > 0; i++)
           printf("%s\n", helpstr[i]);
-        exit(0);
+        exit(EXIT_SUCCESS);
         break;
       case '?':
       default:
         printf("Illegal command-line option(s)\nUse %s -help for a summary of the options.\n", argv[0]);
-        exit(0);
+        exit(EXIT_FAILURE);
     }
   }
 
@@ -827,7 +988,7 @@ params_t *parse_cmdline(int argc, char *argv[])
     printf("Unrecognized parameters.");
     for (i=0; strlen(shorthelpstr[i]) > 0; i++)
       printf("%s\n", shorthelpstr[i]);
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
   params->infile  = gk_strdup(argv[gk_optind++]);

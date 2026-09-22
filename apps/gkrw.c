@@ -9,6 +9,9 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+#include "app_io.h"
+
 /*************************************************************************/
 /*! Data structures for the code */
 /*************************************************************************/
@@ -95,6 +98,7 @@ static char shorthelpstr[][100] = {
 void print_init_info(params_t *params, gk_csr_t *mat);
 void print_final_info(params_t *params);
 params_t *parse_cmdline(int argc, char *argv[]);
+void free_params(params_t **r_params);
 
 
 /*************************************************************************/
@@ -103,6 +107,7 @@ params_t *parse_cmdline(int argc, char *argv[]);
 int main(int argc, char *argv[])
 {
   ssize_t i, j, niter;
+  char *output_tempname=NULL;
   params_t *params;
   gk_csr_t *mat;
   FILE *fpout;
@@ -112,6 +117,19 @@ int main(int argc, char *argv[])
 
   /* read the data */
   mat = gk_csr_Read(params->infile, GK_CSR_FMT_METIS, 1, 1);
+  if (mat == NULL) {
+    free_params(&params);
+    return EXIT_FAILURE;
+  }
+  if (mat->nrows <= 0 ||
+      (params->ppr != -1 &&
+       (params->ppr < 1 || params->ppr > mat->nrows)) ||
+      (params->ntvs != -1 && params->ntvs < 1)) {
+    fprintf(stderr, "Invalid random-walk dimensions or source vertex.\n");
+    gk_csr_Free(&mat);
+    free_params(&params);
+    return EXIT_FAILURE;
+  }
 
   /* display some basic stats */
   print_init_info(params, mat);
@@ -134,13 +152,24 @@ int main(int argc, char *argv[])
     }
 
     /* output the computed pr scores */
-    fpout = gk_fopen(params->outfile, "w", "main: outfile");
+    fpout = gk_app_open_output(params->outfile, "w", &output_tempname);
+    if (fpout == NULL) {
+      gk_fFreeMatrix(&prs, params->ntvs, mat->nrows);
+      gk_csr_Free(&mat);
+      free_params(&params);
+      return EXIT_FAILURE;
+    }
     for (i=0; i<mat->nrows; i++) {
       for (j=0; j<params->ntvs; j++)
         fprintf(fpout, "%.4e ", prs[j][i]);
       fprintf(fpout, "\n");
     }
-    gk_fclose(fpout);
+    if (!gk_app_finish_output(fpout, &output_tempname, params->outfile)) {
+      gk_fFreeMatrix(&prs, params->ntvs, mat->nrows);
+      gk_csr_Free(&mat);
+      free_params(&params);
+      return EXIT_FAILURE;
+    }
 
     gk_fFreeMatrix(&prs, params->ntvs, mat->nrows);
   }
@@ -156,10 +185,21 @@ int main(int argc, char *argv[])
     printf("ppr: %d; niters: %zd\n", params->ppr, niter);
 
     /* output the computed pr scores */
-    fpout = gk_fopen(params->outfile, "w", "main: outfile");
+    fpout = gk_app_open_output(params->outfile, "w", &output_tempname);
+    if (fpout == NULL) {
+      gk_free((void **)&pr, LTERM);
+      gk_csr_Free(&mat);
+      free_params(&params);
+      return EXIT_FAILURE;
+    }
     for (i=0; i<mat->nrows; i++)
       fprintf(fpout, "%.4e\n", pr[i]);
-    gk_fclose(fpout);
+    if (!gk_app_finish_output(fpout, &output_tempname, params->outfile)) {
+      gk_free((void **)&pr, LTERM);
+      gk_csr_Free(&mat);
+      free_params(&params);
+      return EXIT_FAILURE;
+    }
 
     gk_free((void **)&pr, LTERM);
   }
@@ -175,7 +215,13 @@ int main(int argc, char *argv[])
     printf("pr; niters: %zd\n", niter);
 
     /* output the computed pr scores */
-    fpout = gk_fopen(params->outfile, "w", "main: outfile");
+    fpout = gk_app_open_output(params->outfile, "w", &output_tempname);
+    if (fpout == NULL) {
+      gk_free((void **)&pr, LTERM);
+      gk_csr_Free(&mat);
+      free_params(&params);
+      return EXIT_FAILURE;
+    }
     for (i=0; i<mat->nrows; i++) {
       for (jmax=i, maxdiff=0.0, j=mat->rowptr[i]; j<mat->rowptr[i+1]; j++) {
         if ((diff = fabs(pr[i]-pr[mat->rowind[j]])) > maxdiff) {
@@ -186,7 +232,12 @@ int main(int argc, char *argv[])
       fprintf(fpout, "%.4e %10zd %.4e %10d\n", pr[i],
           mat->rowptr[i+1]-mat->rowptr[i], maxdiff, jmax+1);
     }
-    gk_fclose(fpout);
+    if (!gk_app_finish_output(fpout, &output_tempname, params->outfile)) {
+      gk_free((void **)&pr, LTERM);
+      gk_csr_Free(&mat);
+      free_params(&params);
+      return EXIT_FAILURE;
+    }
 
     gk_free((void **)&pr, LTERM);
   }
@@ -195,6 +246,9 @@ int main(int argc, char *argv[])
 
   /* display some final stats */
   print_final_info(params);
+
+  free_params(&params);
+  return EXIT_SUCCESS;
 }
 
 
@@ -258,30 +312,30 @@ params_t *parse_cmdline(int argc, char *argv[])
   while ((c = gk_getopt_long_only(argc, argv, "", long_options, &option_index)) != -1) {
     switch (c) {
       case CMD_NITER:
-        if (gk_optarg) params->niter = atoi(gk_optarg);
+        params->niter = gk_app_parse_int(gk_optarg, "niter");
         break;
       case CMD_NTVS:
-        if (gk_optarg) params->ntvs = atoi(gk_optarg);
+        params->ntvs = gk_app_parse_int(gk_optarg, "ntvs");
         break;
       case CMD_PPR:
-        if (gk_optarg) params->ppr = atoi(gk_optarg);
+        params->ppr = gk_app_parse_int(gk_optarg, "ppr");
         break;
       case CMD_EPS:
-        if (gk_optarg) params->eps = atof(gk_optarg);
+        params->eps = gk_app_parse_float(gk_optarg, "eps");
         break;
       case CMD_LAMDA:
-        if (gk_optarg) params->lamda = atof(gk_optarg);
+        params->lamda = gk_app_parse_float(gk_optarg, "lamda");
         break;
 
       case CMD_HELP:
         for (i=0; strlen(helpstr[i]) > 0; i++)
           printf("%s\n", helpstr[i]);
-        exit(0);
+        exit(EXIT_SUCCESS);
         break;
       case '?':
       default:
         printf("Illegal command-line option(s)\nUse %s -help for a summary of the options.\n", argv[0]);
-        exit(0);
+        exit(EXIT_FAILURE);
     }
   }
 
@@ -289,7 +343,7 @@ params_t *parse_cmdline(int argc, char *argv[])
     printf("Unrecognized parameters.");
     for (i=0; strlen(shorthelpstr[i]) > 0; i++)
       printf("%s\n", shorthelpstr[i]);
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
   params->infile  = gk_strdup(argv[gk_optind++]);
@@ -302,4 +356,18 @@ params_t *parse_cmdline(int argc, char *argv[])
     errexit("Only one of the -ppr and -ntvs options can be specified.\n");
 
   return params;
+}
+
+
+/*************************************************************************/
+/*! Frees command-line parameters. */
+/*************************************************************************/
+void free_params(params_t **r_params)
+{
+  params_t *params = *r_params;
+
+  if (params == NULL)
+    return;
+  gk_free((void **)&params->infile, &params->outfile, &params, LTERM);
+  *r_params = NULL;
 }

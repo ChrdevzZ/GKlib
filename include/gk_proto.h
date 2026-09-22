@@ -113,8 +113,8 @@ GKLIB_EXPORT void   gk_AllocMatrix(void ***, size_t, size_t , size_t);
 GKLIB_EXPORT void   gk_FreeMatrix(void ***, size_t, size_t);
 GKLIB_EXPORT int    gk_malloc_init(void);
 GKLIB_EXPORT void   gk_malloc_cleanup(int showstats);
-GKLIB_EXPORT void  *gk_malloc(size_t nbytes, char *msg);
-GKLIB_EXPORT void  *gk_realloc(void *oldptr, size_t nbytes, char *msg);
+GKLIB_EXPORT void  *gk_malloc(size_t nbytes, const char *msg);
+GKLIB_EXPORT void  *gk_realloc(void *oldptr, size_t nbytes, const char *msg);
 GKLIB_EXPORT void   gk_free(void **ptr1,...);
 GKLIB_EXPORT size_t gk_GetCurMemoryUsed(void);
 GKLIB_EXPORT size_t gk_GetMaxMemoryUsed(void);
@@ -129,6 +129,7 @@ GKLIB_EXPORT size_t gk_GetProcVmPeak(void);
 GKLIB_EXPORT gk_seq_t *gk_seq_ReadGKMODPSSM(char *file_name);
 GKLIB_EXPORT gk_i2cc2i_t *gk_i2cc2i_create_common(char *alphabet);
 GKLIB_EXPORT void gk_seq_init(gk_seq_t *seq);
+GKLIB_EXPORT void gk_seq_free(gk_seq_t *seq);
 
 
 
@@ -136,8 +137,8 @@ GKLIB_EXPORT void gk_seq_init(gk_seq_t *seq);
  * error.c
  *-------------------------------------------------------------*/
 GKLIB_EXPORT void gk_set_exit_on_error(int value);
-GKLIB_EXPORT void errexit(char *,...);
-GKLIB_EXPORT void gk_errexit(int signum, char *,...);
+GKLIB_EXPORT void errexit(const char *,...);
+GKLIB_EXPORT void gk_errexit(int signum, const char *,...);
 GKLIB_EXPORT int gk_sigtrap(void);
 GKLIB_EXPORT int gk_siguntrap(void);
 GKLIB_EXPORT void gk_sigthrow(int signum);

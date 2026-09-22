@@ -7,7 +7,15 @@ upstream source, compatibility changes and Unreleased history see
 
 `tools/upstream.py` is a developer-only audit and preparation tool. It compares this migration with the official KarypisLab repository while keeping the source checkout, Git index, and refs unchanged. The ordinary CMake configure and build do not require Python.
 
-The manifest records the official baseline commit `3b7d61b9f885063c89901f3901fb4426f9cfb58f` from `https://github.com/KarypisLab/GKlib.git`. C and header files use identity mappings: an upstream `src/*`, `include/*`, or `apps/*` path maps to the same local path unless it is an explicit tombstone. `GKlibConfig.cmake.in` maps to `cmake/GKlibConfig.cmake.in` as a template, and removed compatibility headers and legacy build files remain explicit tombstones.
+The manifest records the official baseline commit
+`3b7d61b9f885063c89901f3901fb4426f9cfb58f` from
+`https://github.com/KarypisLab/GKlib.git`. Every accepted upstream file has a
+mapping or intentional tombstone. C and header files use identity mappings:
+an upstream `src/*`, `include/*`, or `apps/*` path maps to the same local path
+unless it is an explicit tombstone. Documentation, licenses and scripts also
+map to their local paths. `GKlibConfig.cmake.in` maps to
+`cmake/GKlibConfig.cmake.in` as a template, and removed compatibility headers
+and legacy build files remain explicit tombstones.
 
 The generated-header relationships record that CMake configures `include/gklib_config.h.in` as `build/include/gklib_config.h` and creates `build/include/gklib_export.h` with `GenerateExportHeader`. Generated build-tree files are not upstream baselines and are never written by this tool.
 
@@ -21,7 +29,11 @@ python tools/upstream.py compare --to <commit>
 python tools/upstream.py prepare --to <commit> --output <fresh-build-directory>
 ```
 
-`check` validates the JSON schema, baseline blob IDs, coverage of upstream and local C, C++, header, Fortran, and template files, named legacy build files, mapping uniqueness, local file state, and generated-header relationships. Extension checks are case-insensitive. It is a developer check. If the baseline object is missing, it fails with a clear diagnostic; that does not affect a normal CMake build.
+`check` validates the JSON schema, baseline blob IDs, a mapping for every blob
+in the accepted upstream tree, local C, C++, header, Fortran and template
+coverage, mapping uniqueness, local file state, and generated-header
+relationships. It is a developer check. If the baseline object is missing, it
+fails with a clear diagnostic; that does not affect a normal CMake build.
 
 `compare` is offline by default. The target commit must already exist in the source repository's object database. It compares complete tracked trees, including additions, deletions, mode changes, and modifications. Exact-content delete/add pairs are reported as rename candidates. When one blob maps to several source or destination paths, every candidate is marked ambiguous.
 
@@ -34,13 +46,14 @@ python tools/upstream.py prepare --to <commit-or-ref> --fetch --output build/ups
 
 The fetch URL comes from the manifest. A bare repository is created only at `<build-directory>/.upstream-cache.git`; the source repository's remotes, refs, index, and worktree are not changed.
 
-`prepare` creates advisory files in a fresh output directory. It never applies a patch, overwrites a source file, changes the manifest baseline, or stages changes. For direct and modified mappings, it runs:
+`prepare` creates advisory files in a fresh output directory. It never applies a patch, overwrites a source file, changes the manifest baseline, or stages changes. For direct and modified text mappings, it runs:
 
 ```text
 git merge-file --stdout --diff3 current baseline upstream
 ```
 
-Only CRLF/LF differences are normalized for comparisons and merging. Other whitespace and bytes remain significant, and a clean candidate uses the current local file's line-ending style.
+For text files, only CRLF/LF differences are normalized for comparisons and merging. Other whitespace and bytes remain significant, and a clean candidate uses the current local file's line-ending style.
+Binary changes retain raw candidate bytes and require manual review.
 
 The output contains:
 
@@ -53,11 +66,18 @@ The output contains:
 
 The manifest candidate retains stable IDs, records the target's full commit and blob IDs, and recalculates `direct` or `modified` from each clean proposed source. Once reviewed source candidates and the manifest are accepted together, that manifest can be checked and used as the baseline for the next update.
 
-Upstream additions, deletions, possible renames, template changes, tombstones, unmapped files, missing local files, and three-way conflicts always carry `review_required: true`. `report.json` lists their stable IDs under `manifest_candidate.manual_review_stable_ids`, and sets `manifest_candidate.acceptance_ready` to false while any remain. To keep the candidate complete without deciding for the reviewer, covered additions appear as advisory `removed` placeholders, while locally present files deleted upstream become `local` entries. Required coverage paths absent from the target are omitted from the candidate coverage list. Exact-content rename candidates remain separate deletion and addition decisions; the tool does not connect the new path to the old local file. Reviewers must resolve these placeholders and entries before accepting the manifest. A clean merge is still only a candidate; applying it is a separate, manual decision.
+Upstream additions, deletions, possible renames, template changes, tombstones, unmapped files, missing local files, and three-way conflicts always carry `review_required: true`. `report.json` lists their stable IDs under `manifest_candidate.manual_review_stable_ids`, and sets `manifest_candidate.acceptance_ready` to false while any remain. To keep the candidate complete without deciding for the reviewer, all upstream blob additions appear as advisory `removed` placeholders, while locally present files deleted upstream become `local` entries. Required coverage paths absent from the target are omitted from the candidate coverage list. Exact-content rename candidates remain separate deletion and addition decisions; the tool does not connect the new path to the old local file. Reviewers must resolve these placeholders and entries before accepting the manifest. A clean merge is still only a candidate; applying it is a separate, manual decision.
 
 ## Manifest
 
-`upstream/files.json` is the source of truth. Every entry contains all six fields:
+`upstream/files.json` is the source of truth.
+
+`coverage.all_upstream_blobs` requires one mapping or intentional tombstone for
+every file in the accepted upstream tree, including documents, licenses,
+scripts and binary files. Local source and template coverage remains governed
+by `coverage.local_extensions`.
+
+Every entry contains all six fields:
 
 ```json
 {
@@ -72,7 +92,8 @@ Upstream additions, deletions, possible renames, template changes, tombstones, u
 
 Stable IDs do not encode a current commit and must remain unchanged when a path's contents change. Kinds have these meanings:
 
-- `direct`: local content equals the baseline after CRLF normalization;
+- `direct`: local text equals the baseline after CRLF normalization, or local
+  binary content equals the baseline byte for byte;
 - `modified`: the mapped local file has intentional changes;
 - `template`: upstream content maps to a configured template and requires manual adaptation;
 - `local`: no upstream counterpart exists;

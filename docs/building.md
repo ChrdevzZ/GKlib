@@ -339,11 +339,13 @@ assertion diagnostic and the signal handler's dedicated exit status. Unrelated
 failures, startup errors and timeouts do not demonstrate a working assertion.
 OpenMP package regressions also check that runtime discovery preserves unrelated
 parent cache entries and cannot select them as libraries. Focused source tests
-cover nullable binary-reader counts, partial matrix-allocation cleanup, moving
-regular-expression reallocations, failed backtracking-stack pushes and failed
-constrained-state node-set copies, the iterative quicksort sentinel and
-transactional allocation bookkeeping, including marker-rejected reallocations,
-frees and mcore cleanup.
+cover dynamic text and one-descriptor binary readers, matrix/cache/mcore/hash
+construction, graph/CSR validation and transforms, sequence ownership,
+transactional output, moving regular-expression reallocations, failed
+backtracking-stack pushes, constrained-state node-set copies, the iterative
+quicksort sentinel and marker-rejected memory cleanup. Installed C99 and C++11
+consumers instantiate the public template families through ordinary include
+paths with warnings treated as errors.
 
 ```sh
 cmake -S . -B build/developer -G Ninja -DCMAKE_BUILD_TYPE=Release -DGKLIB_BUILD_DEVELOPER_TESTING=ON -DGKLIB_BUILD_INTEGRATION_TESTING=ON

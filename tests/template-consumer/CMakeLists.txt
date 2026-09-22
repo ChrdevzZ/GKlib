@@ -8,6 +8,16 @@ add_executable(gklib-template-consumer-c consumer.c)
 add_executable(gklib-template-consumer-cxx consumer.cpp)
 target_compile_features(gklib-template-consumer-c PRIVATE c_std_99)
 target_compile_features(gklib-template-consumer-cxx PRIVATE cxx_std_11)
+set_target_properties(gklib-template-consumer-c PROPERTIES
+  C_STANDARD 99
+  C_STANDARD_REQUIRED YES
+  C_EXTENSIONS NO
+  NO_SYSTEM_FROM_IMPORTED YES)
+set_target_properties(gklib-template-consumer-cxx PROPERTIES
+  CXX_STANDARD 11
+  CXX_STANDARD_REQUIRED YES
+  CXX_EXTENSIONS NO
+  NO_SYSTEM_FROM_IMPORTED YES)
 target_link_libraries(gklib-template-consumer-c PRIVATE GKlib::GKlib)
 target_link_libraries(gklib-template-consumer-cxx PRIVATE GKlib::GKlib)
 
@@ -16,6 +26,12 @@ if(MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC" OR
   CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
   target_compile_options(gklib-template-consumer-c PRIVATE /WX)
   target_compile_options(gklib-template-consumer-cxx PRIVATE /WX)
+elseif(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND
+    CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(gklib-template-consumer-c PRIVATE
+    -Wall -Wextra -Werror)
+  target_compile_options(gklib-template-consumer-cxx PRIVATE
+    -Wall -Wextra -Werror)
 endif()
 
 # The consumer owns execution tests for its two local targets.

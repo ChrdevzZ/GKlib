@@ -8,6 +8,8 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+
 /* mem_flush() evicts an array from the cache between timed runs using the x86
    clflush/sfence instructions. These are exposed as the _mm_clflush/_mm_sfence
    intrinsics on every x86 compiler (GCC, Clang, MSVC, ICC), so we use those
@@ -74,13 +76,15 @@ static char helpstr[][100] = {
 params_t *parse_cmdline(int argc, char *argv[]);
 int unique_v1(int n, int *input, int *output);
 int unique_v2(int n, int *input, int *output);
-int unique_v3(int n, int *input, int *output, int *r_maxsize, int **r_hmap);
-void mem_flush(const void *p, unsigned int allocation_size);
+int unique_v3(int n, int *input, int *output, size_t *r_maxsize,
+              int **r_hmap);
+static int unique_hash_size(int n, size_t *r_size);
+void mem_flush(const void *p, size_t allocation_size);
 
 /*************************************************************************/
 /*! A function to flush the cache associated with an array */
 /**************************************************************************/
-void mem_flush(const void *p, unsigned int allocation_size)
+void mem_flush(const void *p, size_t allocation_size)
 {
 #ifdef GK_HAVE_X86_FLUSH
   const size_t cache_line = 64;
@@ -109,7 +113,8 @@ int main(int argc, char *argv[])
   params_t *params;
   double tmr;
   int n, nunique, *input, *output;
-  int maxsize=0, *hmap=NULL; 
+  size_t maxsize=0;
+  int *hmap=NULL;
  
   params = parse_cmdline(argc, argv);
 
@@ -117,6 +122,10 @@ int main(int argc, char *argv[])
   n = params->length*params->dupfactor;
   input  = gk_imalloc(n, "input");
   output = gk_imalloc(n, "output");
+  if (input == NULL || output == NULL) {
+    gk_free((void **)&input, &output, LTERM);
+    return EXIT_FAILURE;
+  }
   for (i=0; i<params->length; i++) {
     k = RandomInRange(n);
     for (j=0; j<params->dupfactor; j++)
@@ -128,6 +137,8 @@ int main(int argc, char *argv[])
   mem_flush(input, n*sizeof(int));
   mem_flush(output, n*sizeof(int));
   nunique = unique_v1(n, input, output);
+  if (nunique < 0)
+    goto failure;
   gk_stopwctimer(tmr);
   printf(" V1: nunique: %d, timer: %.5lf\n", nunique, gk_getwctimer(tmr));
 
@@ -136,6 +147,8 @@ int main(int argc, char *argv[])
   mem_flush(input, n*sizeof(int));
   mem_flush(output, n*sizeof(int));
   nunique = unique_v2(n, input, output);
+  if (nunique < 0)
+    goto failure;
   gk_stopwctimer(tmr);
   printf(" V2: nunique: %d, timer: %.5lf\n", nunique, gk_getwctimer(tmr));
 
@@ -144,6 +157,8 @@ int main(int argc, char *argv[])
   mem_flush(input, n*sizeof(int));
   mem_flush(output, n*sizeof(int));
   nunique = unique_v3(n, input, output, &maxsize, &hmap);
+  if (nunique < 0)
+    goto failure;
   gk_stopwctimer(tmr);
   printf("V3c: nunique: %d, timer: %.5lf\n", nunique, gk_getwctimer(tmr));
 
@@ -152,11 +167,18 @@ int main(int argc, char *argv[])
   mem_flush(input, n*sizeof(int));
   mem_flush(output, n*sizeof(int));
   nunique = unique_v3(n, input, output, &maxsize, &hmap);
+  if (nunique < 0)
+    goto failure;
   gk_stopwctimer(tmr);
   printf("V3w: nunique: %d, timer: %.5lf\n", nunique, gk_getwctimer(tmr));
 
   gk_free((void **)&input, &output, &hmap, LTERM);
 
+  return EXIT_SUCCESS;
+
+failure:
+  gk_free((void **)&input, &output, &hmap, LTERM);
+  return EXIT_FAILURE;
 }
 
 
@@ -178,12 +200,12 @@ params_t *parse_cmdline(int argc, char *argv[])
       case CMD_HELP:
         for (i=0; strlen(helpstr[i]) > 0; i++)
           printf("%s\n", helpstr[i]);
-        exit(0);
+        exit(EXIT_SUCCESS);
         break;
       case '?':
       default:
         printf("Illegal command-line option(s)\nUse %s -help for a summary of the options.\n", argv[0]);
-        exit(0);
+        exit(EXIT_FAILURE);
     }
   }
 
@@ -191,11 +213,16 @@ params_t *parse_cmdline(int argc, char *argv[])
     printf("Unrecognized parameters.");
     for (i=0; strlen(helpstr[i]) > 0; i++)
       printf("%s\n", helpstr[i]);
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
-  params->length    = atoi(argv[gk_optind++]);
-  params->dupfactor = atoi(argv[gk_optind++]);
+  params->length    = gk_app_parse_int(argv[gk_optind++], "length");
+  params->dupfactor = gk_app_parse_int(argv[gk_optind++], "dupfactor");
+  if (params->length <= 0 || params->dupfactor <= 0 ||
+      (size_t)params->length > INT_MAX/(size_t)params->dupfactor ||
+      (size_t)params->length >
+          SIZE_MAX/sizeof(int)/(size_t)params->dupfactor)
+    errexit("length and dupfactor must have a positive, representable product.\n");
 
   return params;
 }
@@ -207,6 +234,9 @@ params_t *parse_cmdline(int argc, char *argv[])
 int unique_v1(int n, int *input, int *output)
 {
   int i, j;
+
+  if (n <= 0 || input == NULL || output == NULL)
+    return -1;
 
   gk_isorti(n, input);
 
@@ -220,17 +250,46 @@ int unique_v1(int n, int *input, int *output)
 
 
 /*************************************************************************/
+/*! Computes a power-of-two hash-table size for n integer entries.
+
+    The returned capacity is at least twice the input length and is checked
+    both for arithmetic overflow and for the byte size of the allocation.
+*/
+/*************************************************************************/
+static int unique_hash_size(int n, size_t *r_size)
+{
+  size_t size, target;
+
+  if (n <= 0 || r_size == NULL || (size_t)n > SIZE_MAX/2)
+    return 0;
+  target = 2*(size_t)n;
+  for (size=1; size<target; size*=2) {
+    if (size > SIZE_MAX/2)
+      return 0;
+  }
+  if (size > SIZE_MAX/sizeof(int))
+    return 0;
+
+  *r_size = size;
+  return 1;
+}
+
+
+/*************************************************************************/
 /*! hash-table based approach */
 /*************************************************************************/
 int unique_v2(int n, int *input, int *output)
 {
-  int i, j, k, nuniq, size, mask;
+  int i, k, nuniq;
+  size_t j, size, mask;
   int *hmap;
 
-  for (size=1; size<2*n; size*=2);
+  if (input == NULL || output == NULL || !unique_hash_size(n, &size))
+    return -1;
   mask = size-1;
-  //printf("size: %d, mask: %x\n", size, mask);
   hmap = gk_ismalloc(size, -1, "hmap");
+  if (hmap == NULL)
+    return -1;
 
   for (nuniq=0, i=0; i<n; i++) {
     k = input[i];
@@ -249,17 +308,23 @@ int unique_v2(int n, int *input, int *output)
 /*************************************************************************/
 /*! hash-table based approach, where the htable is most likely pre-allocated */
 /*************************************************************************/
-int unique_v3(int n, int *input, int *output, int *r_maxsize, int **r_hmap)
+int unique_v3(int n, int *input, int *output, size_t *r_maxsize,
+              int **r_hmap)
 {
-  int i, j, k, nuniq, size, mask;
-  int *hmap;
+  int i, k, nuniq;
+  size_t j, size, mask;
+  int *hmap, *newhmap;
 
-  for (size=1; size<2*n; size*=2);
+  if (input == NULL || output == NULL || r_maxsize == NULL ||
+      r_hmap == NULL || !unique_hash_size(n, &size))
+    return -1;
   mask = size-1;
-  //printf("size: %d, mask: %x\n", size, mask);
   if (size > *r_maxsize) {
+    newhmap = gk_ismalloc(size, -1, "hmap");
+    if (newhmap == NULL)
+      return -1;
     gk_free((void **)r_hmap, LTERM);
-    hmap = *r_hmap = gk_ismalloc(size, -1, "hmap");
+    hmap = *r_hmap = newhmap;
     *r_maxsize = size;
   }
   else {

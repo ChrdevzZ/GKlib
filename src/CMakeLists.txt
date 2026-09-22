@@ -36,6 +36,7 @@ target_sources(GKlib PRIVATE
   graph.c
   htable.c
   io.c
+  io_internal.h
   itemsets.c
   mcore.c
   memory.c
@@ -57,6 +58,10 @@ set_target_properties(GKlib PROPERTIES
   SOVERSION ${PROJECT_VERSION_MAJOR}
   VERSION ${PROJECT_VERSION})
 
+if(MSVC OR CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  target_compile_definitions(GKlib PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
 if(DEFINED CMAKE_POSITION_INDEPENDENT_CODE)
   set_property(TARGET GKlib PROPERTY POSITION_INDEPENDENT_CODE
     "${CMAKE_POSITION_INDEPENDENT_CODE}")
@@ -66,7 +71,11 @@ endif()
 
 if(MINGW)
   target_link_options(GKlib PRIVATE
-    -Wl,--export-all-symbols,--exclude-symbols,gk_realloc_mcore)
+    -Wl,--export-all-symbols
+    -Wl,--exclude-symbols=gk_realloc_mcore
+    -Wl,--exclude-symbols=gk_malloc_nosignal
+    -Wl,--exclude-symbols=gk_realloc_nosignal
+    -Wl,--exclude-symbols=gk_free_nosignal)
 endif()
 
 #-------------------------------------------------------------------------------

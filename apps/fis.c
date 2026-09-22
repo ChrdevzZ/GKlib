@@ -9,6 +9,8 @@
 
 #include <GKlib.h>
 
+#include "app_parse.h"
+
 /*************************************************************************/
 /*! Data structures for the code */
 /*************************************************************************/
@@ -100,6 +102,7 @@ static char shorthelpstr[][100] = {
 void print_init_info(params_t *params, gk_csr_t *mat);
 void print_final_info(params_t *params);
 params_t *parse_cmdline(int argc, char *argv[]);
+static void free_params(params_t **r_params, size_t nlabels);
 void print_an_itemset(void *stateptr, int nitems, int *itemind, 
                       int ntrans, int *tranind);
 
@@ -110,34 +113,68 @@ void print_an_itemset(void *stateptr, int nitems, int *itemind,
 int main(int argc, char *argv[])
 {
   ssize_t i;
-  char line[8192];
-  FILE *fpin;
+  ssize_t line_length;
+  size_t nlabels=0;
+  size_t line_size=0;
+  char label[64], *line=NULL;
+  FILE *fpin=NULL;
   params_t *params;
-  gk_csr_t *mat;
+  gk_csr_t *mat=NULL;
+  int status=EXIT_FAILURE;
  
   params = parse_cmdline(argc, argv);
   params->nitemsets = 0;
 
   /* read the data */
   mat = gk_csr_Read(params->filename, GK_CSR_FMT_CLUTO, 1, 1);
+  if (mat == NULL)
+    goto cleanup;
   gk_csr_CreateIndex(mat, GK_CSR_COL);
 
   /* read the column labels */
-  params->clabels = (char **)gk_malloc(mat->ncols*sizeof(char *), "main: clabels");
+  if (mat->ncols < 0 || (size_t)mat->ncols > SIZE_MAX/sizeof(char *)) {
+    fprintf(stderr, "Invalid column count in input matrix.\n");
+    goto cleanup;
+  }
+  nlabels = (size_t)mat->ncols;
+  params->clabels = (char **)gk_malloc(nlabels*sizeof(char *), "main: clabels");
+  if (params->clabels == NULL)
+    goto cleanup;
+  memset(params->clabels, 0, nlabels*sizeof(char *));
   if (params->clabelfile == NULL) {
     for (i=0; i<mat->ncols; i++) {
-      sprintf(line, "%zd", i);
-      params->clabels[i] = gk_strdup(line);
+      snprintf(label, sizeof(label), "%zd", i);
+      params->clabels[i] = gk_strdup(label);
+      if (params->clabels[i] == NULL)
+        goto cleanup;
     }
   }
   else {
     fpin = gk_fopen(params->clabelfile, "r", "main: fpin");
+    if (fpin == NULL)
+      goto cleanup;
     for (i=0; i<mat->ncols; i++) {
-      if (fgets(line, 8192, fpin) == NULL)
-        errexit("Failed on fgets.\n");
-      params->clabels[i] = gk_strdup(gk_strtprune(line, " \n\t"));
+      line_length = gk_getline(&line, &line_size, fpin);
+      if (line_length == -1 ||
+          memchr(line, '\0', (size_t)line_length) != NULL) {
+        fprintf(stderr, "Failed to read column label %zd.\n", i);
+        goto cleanup;
+      }
+      params->clabels[i] = gk_strdup(gk_strtprune(line, " \r\n\t"));
+      if (params->clabels[i] == NULL)
+        goto cleanup;
     }
-    gk_fclose(fpin);
+    line_length = gk_getline(&line, &line_size, fpin);
+    if (line_length != -1 || !feof(fpin) || ferror(fpin)) {
+      fprintf(stderr, "Column-label input contains extra or unreadable data.\n");
+      goto cleanup;
+    }
+    if (fclose(fpin) != 0) {
+      fpin = NULL;
+      fprintf(stderr, "Failed to close column-label input.\n");
+      goto cleanup;
+    }
+    fpin = NULL;
   }
 
 
@@ -150,7 +187,17 @@ int main(int argc, char *argv[])
   printf("Total itemsets found: %zd\n", params->nitemsets);
 
   print_final_info(params);
-}  
+
+  status = EXIT_SUCCESS;
+
+cleanup:
+  if (fpin != NULL)
+    fclose(fpin);
+  free(line);
+  gk_csr_Free(&mat);
+  free_params(&params, nlabels);
+  return status;
+}
 
 
 
@@ -207,22 +254,23 @@ params_t *parse_cmdline(int argc, char *argv[])
   params->silent     = 0;
   params->filename   = NULL;
   params->clabelfile = NULL;
+  params->clabels    = NULL;
 
 
   /* Parse the command line arguments  */
   while ((c = gk_getopt_long_only(argc, argv, "", long_options, &option_index)) != -1) {
     switch (c) {
       case CMD_MINLEN:
-        if (gk_optarg) params->minlen = atoi(gk_optarg);
+        params->minlen = gk_app_parse_int(gk_optarg, "minlen");
         break;
       case CMD_MAXLEN:
-        if (gk_optarg) params->maxlen = atoi(gk_optarg);
+        params->maxlen = gk_app_parse_int(gk_optarg, "maxlen");
         break;
       case CMD_MINFREQ:
-        if (gk_optarg) params->minfreq = atoi(gk_optarg);
+        params->minfreq = gk_app_parse_int(gk_optarg, "minfreq");
         break;
       case CMD_MAXFREQ:
-        if (gk_optarg) params->maxfreq = atoi(gk_optarg);
+        params->maxfreq = gk_app_parse_int(gk_optarg, "maxfreq");
         break;
 
       case CMD_SILENT:
@@ -236,12 +284,12 @@ params_t *parse_cmdline(int argc, char *argv[])
       case CMD_HELP:
         for (i=0; strlen(helpstr[i]) > 0; i++)
           printf("%s\n", helpstr[i]);
-        exit(0);
+        exit(EXIT_SUCCESS);
         break;
       case '?':
       default:
         printf("Illegal command-line option(s)\nUse %s -help for a summary of the options.\n", argv[0]);
-        exit(0);
+        exit(EXIT_FAILURE);
     }
   }
 
@@ -249,7 +297,7 @@ params_t *parse_cmdline(int argc, char *argv[])
     printf("Unrecognized parameters.");
     for (i=0; strlen(shorthelpstr[i]) > 0; i++)
       printf("%s\n", shorthelpstr[i]);
-    exit(0);
+    exit(EXIT_FAILURE);
   }
 
   params->filename = gk_strdup(argv[gk_optind++]);
@@ -258,6 +306,26 @@ params_t *parse_cmdline(int argc, char *argv[])
     errexit("input file %s does not exist.\n", params->filename);
 
   return params;
+}
+
+
+/*************************************************************************/
+/*! Frees command-line parameters and any constructed labels. */
+/*************************************************************************/
+static void free_params(params_t **r_params, size_t nlabels)
+{
+  size_t i;
+  params_t *params = *r_params;
+
+  if (params == NULL)
+    return;
+  if (params->clabels != NULL) {
+    for (i=0; i<nlabels; i++)
+      gk_free((void **)&params->clabels[i], LTERM);
+  }
+  gk_free((void **)&params->clabels, &params->filename,
+          &params->clabelfile, &params, LTERM);
+  *r_params = NULL;
 }
 
 

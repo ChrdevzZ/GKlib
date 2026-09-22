@@ -24,7 +24,21 @@ target_include_directories(gklib-memory-failure-recovery-test PRIVATE
 set_property(SOURCE memory_failure_recovery.c PROPERTY OBJECT_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/mcore.c"
   "${PROJECT_SOURCE_DIR}/src/memory.c"
-  "${PROJECT_SOURCE_DIR}/src/memory_internal.h")
+  "${PROJECT_SOURCE_DIR}/src/memory_internal.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/memory_failure_support.h")
+
+add_executable(gklib-pqueue-failure-recovery-test
+  pqueue_failure_recovery.c)
+target_compile_definitions(gklib-pqueue-failure-recovery-test PRIVATE
+  GKLIB_STATIC_DEFINE)
+target_include_directories(gklib-pqueue-failure-recovery-test PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${GKLIB_GENERATED_INCLUDE_DIR}")
+set_property(SOURCE pqueue_failure_recovery.c PROPERTY OBJECT_DEPENDS
+  "${PROJECT_SOURCE_DIR}/include/gk_mkpqueue.h"
+  "${PROJECT_SOURCE_DIR}/include/gk_mkpqueue2.h"
+  "${PROJECT_SOURCE_DIR}/src/error.c"
+  "${CMAKE_CURRENT_SOURCE_DIR}/memory_failure_support.h")
 
 add_executable(gklib-regex-realloc-test regex_realloc_failure.c)
 target_compile_definitions(gklib-regex-realloc-test PRIVATE GKLIB_STATIC_DEFINE)
@@ -42,12 +56,120 @@ target_link_libraries(gklib-binary-reader-short-read-test PRIVATE GKlib::GKlib)
 set_property(SOURCE binary_reader_short_read.c PROPERTY OBJECT_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/io.c")
 
+add_executable(gklib-seq-reader-test seq_reader.c)
+target_link_libraries(gklib-seq-reader-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-cache-size-safety-test cache_size_safety.c)
+target_link_libraries(gklib-cache-size-safety-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-cache-failure-recovery-test cache_failure_recovery.c)
+target_compile_definitions(gklib-cache-failure-recovery-test PRIVATE
+  GKLIB_STATIC_DEFINE)
+target_include_directories(gklib-cache-failure-recovery-test PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${GKLIB_GENERATED_INCLUDE_DIR}")
+set_property(SOURCE cache_failure_recovery.c PROPERTY OBJECT_DEPENDS
+  "${PROJECT_SOURCE_DIR}/src/cache.c"
+  "${PROJECT_SOURCE_DIR}/src/memory_internal.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/memory_failure_support.h")
+
+add_executable(gklib-htable-safety-test htable_safety.c)
+target_compile_definitions(gklib-htable-safety-test PRIVATE
+  GKLIB_STATIC_DEFINE)
+target_include_directories(gklib-htable-safety-test PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${GKLIB_GENERATED_INCLUDE_DIR}")
+set_property(SOURCE htable_safety.c PROPERTY OBJECT_DEPENDS
+  "${PROJECT_SOURCE_DIR}/src/htable.c"
+  "${PROJECT_SOURCE_DIR}/src/memory_internal.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/memory_failure_support.h")
+
+add_executable(gklib-memory-size-safety-test memory_size_safety.c)
+target_compile_definitions(gklib-memory-size-safety-test PRIVATE
+  GKLIB_STATIC_DEFINE)
+target_include_directories(gklib-memory-size-safety-test PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${GKLIB_GENERATED_INCLUDE_DIR}")
+set_property(SOURCE memory_size_safety.c PROPERTY OBJECT_DEPENDS
+  "${PROJECT_SOURCE_DIR}/src/mcore.c"
+  "${PROJECT_SOURCE_DIR}/src/memory.c"
+  "${PROJECT_SOURCE_DIR}/src/memory_internal.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/memory_failure_support.h")
+
+add_executable(gklib-error-errno-test error_errno.c)
+target_link_libraries(gklib-error-errno-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-string-growth-failure-test string_growth_failure.c)
+target_include_directories(gklib-string-growth-failure-test PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${GKLIB_GENERATED_INCLUDE_DIR}")
+target_link_libraries(gklib-string-growth-failure-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-tokenizer-failure-test tokenizer_failure.c)
+target_include_directories(gklib-tokenizer-failure-test PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${GKLIB_GENERATED_INCLUDE_DIR}")
+target_link_libraries(gklib-tokenizer-failure-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-io-fs-hardening-test io_fs_hardening.c)
+target_link_libraries(gklib-io-fs-hardening-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-getline-fallback-failure-test
+  getline_fallback_failure.c)
+target_link_libraries(gklib-getline-fallback-failure-test PRIVATE
+  GKlib::GKlib)
+
+add_executable(gklib-fs-link-safety-test fs_link_safety.c)
+target_link_libraries(gklib-fs-link-safety-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-graph-csr-hardening-test graph_csr_hardening.c)
+target_link_libraries(gklib-graph-csr-hardening-test PRIVATE GKlib::GKlib)
+
+add_executable(gklib-writer-failure-hardening-test writer_failure_hardening.c)
+target_link_libraries(gklib-writer-failure-hardening-test PRIVATE GKlib::GKlib)
+
+# Wrap the private transaction primitives in one translation unit so real
+# flush, close, and commit failures are deterministic on every toolchain.
+add_executable(gklib-output-transaction-failure-test
+  output_transaction_failure.c)
+target_link_libraries(gklib-output-transaction-failure-test PRIVATE
+  GKlib::GKlib)
+
+if(MSVC OR CMAKE_C_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+  foreach(test IN ITEMS
+      gklib-binary-reader-short-read-test
+      gklib-fs-link-safety-test
+      gklib-getline-fallback-failure-test
+      gklib-graph-csr-hardening-test
+      gklib-io-fs-hardening-test
+      gklib-output-transaction-failure-test
+      gklib-seq-reader-test
+      gklib-writer-failure-hardening-test)
+    target_compile_definitions(${test} PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endforeach()
+endif()
+
 set_target_properties(
   gklib-allocation-matrix-test
   gklib-binary-reader-short-read-test
+  gklib-cache-failure-recovery-test
+  gklib-cache-size-safety-test
+  gklib-error-errno-test
+  gklib-graph-csr-hardening-test
+  gklib-fs-link-safety-test
+  gklib-getline-fallback-failure-test
+  gklib-io-fs-hardening-test
+  gklib-htable-safety-test
   gklib-memory-failure-recovery-test
+  gklib-memory-size-safety-test
+  gklib-output-transaction-failure-test
+  gklib-pqueue-failure-recovery-test
   gklib-regex-realloc-test
+  gklib-seq-reader-test
   gklib-sort-sentinel-test
+  gklib-string-growth-failure-test
+  gklib-tokenizer-failure-test
+  gklib-writer-failure-hardening-test
   PROPERTIES
     C_STANDARD 99
     C_STANDARD_REQUIRED YES
@@ -56,14 +178,37 @@ set_target_properties(
 foreach(test IN ITEMS
     allocation-matrix
     binary-reader-short-read
+    cache-failure-recovery
+    cache-size-safety
+    error-errno
+    graph-csr-hardening
+    fs-link-safety
+    getline-fallback-failure
+    io-fs-hardening
+    htable-safety
     memory-failure-recovery
+    memory-size-safety
+    output-transaction-failure
+    pqueue-failure-recovery
     regex-realloc
-    sort-sentinel)
+    sort-sentinel
+    string-growth-failure
+    tokenizer-failure
+    writer-failure-hardening)
   gklib_test_add_runtime(NAME "GKlib.${test}"
     TARGET "gklib-${test}-test"
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
   set_tests_properties("GKlib.${test}" PROPERTIES TIMEOUT 30)
 endforeach()
+
+set_tests_properties(GKlib.fs-link-safety PROPERTIES
+  SKIP_REGULAR_EXPRESSION "GKLIB_LINK_TEST_SKIPPED")
+
+gklib_test_add_runtime(NAME GKlib.seq-reader
+  TARGET gklib-seq-reader-test
+  ARGS "${CMAKE_CURRENT_BINARY_DIR}/seq-reader.pssm"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+set_tests_properties(GKlib.seq-reader PROPERTIES TIMEOUT 30)
 
 # Each binary reader accepts a null optional count while preserving the same
 # allocation and data ownership contract as a counted read.
@@ -82,6 +227,41 @@ if(GKLIB_BUILD_PROGRAMS)
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
   set_tests_properties(GKlib.gksort PROPERTIES TIMEOUT 30
     FAIL_REGULAR_EXPRESSION "error at index")
+
+  add_test(NAME GKlib.app-cli
+    COMMAND "${CMAKE_COMMAND}"
+      -DGKGRAPH=$<TARGET_FILE:gkgraph>
+      -DCSRCNV=$<TARGET_FILE:csrcnv>
+      -DGKUNIQ=$<TARGET_FILE:gkuniq>
+      -DCMPNBRS=$<TARGET_FILE:cmpnbrs>
+      -DFIS=$<TARGET_FILE:fis>
+      -DGKRW=$<TARGET_FILE:gkrw>
+      -DGRKX=$<TARGET_FILE:grKx>
+      -DM2MNBRS=$<TARGET_FILE:m2mnbrs>
+      -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/app-cli
+      "-DCROSSCOMPILING=${CMAKE_CROSSCOMPILING}"
+      "-DEMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/app_cli.cmake")
+  set_tests_properties(GKlib.app-cli PROPERTIES TIMEOUT 30)
+  if(CMAKE_CROSSCOMPILING AND NOT CMAKE_CROSSCOMPILING_EMULATOR)
+    set_tests_properties(GKlib.app-cli PROPERTIES
+      SKIP_REGULAR_EXPRESSION
+        "^GKLIB_RUNTIME_SKIPPED: no cross-compiling emulator")
+  endif()
+
+  add_test(NAME GKlib.splatt2svd-hardening
+    COMMAND "${CMAKE_COMMAND}"
+      -DSPLATT2SVD=$<TARGET_FILE:splatt2svd>
+      -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/splatt2svd-hardening
+      "-DCROSSCOMPILING=${CMAKE_CROSSCOMPILING}"
+      "-DEMULATOR=${CMAKE_CROSSCOMPILING_EMULATOR}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/splatt2svd_hardening.cmake")
+  set_tests_properties(GKlib.splatt2svd-hardening PROPERTIES TIMEOUT 30)
+  if(CMAKE_CROSSCOMPILING AND NOT CMAKE_CROSSCOMPILING_EMULATOR)
+    set_tests_properties(GKlib.splatt2svd-hardening PROPERTIES
+      SKIP_REGULAR_EXPRESSION
+        "^GKLIB_RUNTIME_SKIPPED: no cross-compiling emulator")
+  endif()
 endif()
 
 # The C++ consumer verifies public headers and thread-related link requirements.
@@ -102,8 +282,19 @@ if(WIN32)
       gklib-api-test
       gklib-binary-reader-short-read-test
       gklib-binary-readers-test
+      gklib-cache-size-safety-test
       gklib-cxx-consumer-test
-      gklib-sort-sentinel-test)
+      gklib-error-errno-test
+      gklib-fs-link-safety-test
+      gklib-getline-fallback-failure-test
+      gklib-graph-csr-hardening-test
+      gklib-io-fs-hardening-test
+      gklib-output-transaction-failure-test
+      gklib-seq-reader-test
+      gklib-sort-sentinel-test
+      gklib-string-growth-failure-test
+      gklib-tokenizer-failure-test
+      gklib-writer-failure-hardening-test)
     set(runtime_dlls "$<TARGET_RUNTIME_DLLS:${test}>")
     if(TARGET GKlib::ASanRuntime)
       string(APPEND runtime_dlls
