@@ -19,6 +19,7 @@
 PQT *FPRFX ## Create(size_t maxnodes)\
 {\
   PQT *volatile queue;\
+  void *cleanup_queue;\
   volatile int saved_errno;\
   volatile int signum=0;\
 \
@@ -27,10 +28,14 @@ PQT *FPRFX ## Create(size_t maxnodes)\
     return NULL;\
   memset(queue, 0, sizeof(PQT));\
   if (!gk_sigtrap()) {\
-    gk_free((void **)&queue, LTERM);\
-    errno = ENOMEM;\
-    gk_errexit(SIGMEM, "gk_pqCreate: signal trap unavailable");\
-    errno = ENOMEM;\
+    saved_errno = errno;\
+    signum = saved_errno == ENOMEM || saved_errno == EOVERFLOW ? SIGMEM : SIGERR;\
+    cleanup_queue = (PQT *)queue;\
+    gk_free(&cleanup_queue, LTERM);\
+    queue = (PQT *)cleanup_queue;\
+    errno = saved_errno;\
+    gk_errexit(signum, "gk_pqCreate: signal trap unavailable");\
+    errno = saved_errno;\
     return NULL;\
   }\
   switch (gk_sigcatch()) {\
@@ -46,15 +51,18 @@ PQT *FPRFX ## Create(size_t maxnodes)\
   if (signum == 0)\
     FPRFX ## Init((PQT *)queue, maxnodes);\
   saved_errno = errno != 0 ? errno : ENOMEM;\
-  gk_siguntrap();\
+  if (!gk_siguntrap())\
+    _Exit(EXIT_FAILURE);\
   if (queue->heap == NULL || queue->locator == NULL) {\
     FPRFX ## Free((PQT *)queue);\
-    gk_free((void **)&queue, LTERM);\
+    cleanup_queue = (PQT *)queue;\
+    gk_free(&cleanup_queue, LTERM);\
+    queue = (PQT *)cleanup_queue;\
     errno = saved_errno;\
   }\
   if (signum != 0) {\
     errno = saved_errno;\
-    raise(signum);\
+    gk_sigthrow(signum);\
     errno = saved_errno;\
   }\
 \
@@ -90,10 +98,12 @@ void FPRFX ## Init(PQT *queue, size_t maxnodes)\
   queue->locator = NULL;\
 \
   if (!gk_sigtrap()) {\
+    saved_errno = errno;\
+    signum = saved_errno == ENOMEM || saved_errno == EOVERFLOW ? SIGMEM : SIGERR;\
     queue->maxnodes = 0;\
-    errno = ENOMEM;\
-    gk_errexit(SIGMEM, "gk_PQInit: signal trap unavailable");\
-    errno = ENOMEM;\
+    errno = saved_errno;\
+    gk_errexit(signum, "gk_PQInit: signal trap unavailable");\
+    errno = saved_errno;\
     return;\
   }\
   switch (gk_sigcatch()) {\
@@ -117,10 +127,11 @@ void FPRFX ## Init(PQT *queue, size_t maxnodes)\
     vqueue->maxnodes = 0;\
     errno = saved_errno;\
   }\
-  gk_siguntrap();\
+  if (!gk_siguntrap())\
+    _Exit(EXIT_FAILURE);\
   if (signum != 0) {\
     errno = saved_errno;\
-    raise(signum);\
+    gk_sigthrow(signum);\
     errno = saved_errno;\
   }\
 }\

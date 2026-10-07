@@ -8,14 +8,19 @@ include(CMakePushCheckState)
 # linker support. Package probes may use an already enabled CXX or Fortran
 # compiler; this helper never enables an additional project language.
 function(gklib_check_link source result)
-  set(_gklib_link_check_language C)
-  if(ARGC GREATER 2)
-    if(NOT ARGC EQUAL 4 OR NOT ARGV2 STREQUAL "LANGUAGE" OR
-      NOT ARGV3 MATCHES "^(C|CXX|Fortran)$")
-      message(FATAL_ERROR
-        "gklib_check_link expects SOURCE RESULT [LANGUAGE C|CXX|Fortran]")
-    endif()
-    set(_gklib_link_check_language "${ARGV3}")
+  cmake_parse_arguments(PARSE_ARGV 2 _gklib_link_check
+    "UNCACHED" "LANGUAGE" "")
+  if(_gklib_link_check_UNPARSED_ARGUMENTS OR
+      _gklib_link_check_KEYWORDS_MISSING_VALUES)
+    message(FATAL_ERROR
+      "gklib_check_link expects SOURCE RESULT [LANGUAGE C|CXX|Fortran] [UNCACHED]")
+  endif()
+  if(NOT _gklib_link_check_LANGUAGE)
+    set(_gklib_link_check_LANGUAGE C)
+  endif()
+  set(_gklib_link_check_language "${_gklib_link_check_LANGUAGE}")
+  if(NOT _gklib_link_check_language MATCHES "^(C|CXX|Fortran)$")
+    message(FATAL_ERROR "Unsupported gklib_check_link language")
   endif()
 
   if(_gklib_link_check_language STREQUAL "C")
@@ -186,6 +191,14 @@ function(gklib_check_link source result)
     FAIL_REGEX "option[^\n]*not supported"
     FAIL_REGEX "invalid argument [^\n]*option")
 
+  # Small dependency resolvers can request a fresh final link: a library may
+  # change in place without changing any of the flags in the cache signature.
+  # Only this helper's private result is cleared, never a Find module's cache.
+  if(_gklib_link_check_UNCACHED)
+    unset(${_gklib_link_check_variable})
+    unset(${_gklib_link_check_variable} CACHE)
+  endif()
+
   if(_gklib_link_check_language STREQUAL "C")
     check_c_source_compiles("${source}" ${_gklib_link_check_variable}
       ${_gklib_link_check_fail_patterns})
@@ -197,5 +210,8 @@ function(gklib_check_link source result)
       SRC_EXT F90 ${_gklib_link_check_fail_patterns})
   endif()
   set(${result} "${${_gklib_link_check_variable}}" PARENT_SCOPE)
+  if(_gklib_link_check_UNCACHED)
+    unset(${_gklib_link_check_variable} CACHE)
+  endif()
   cmake_pop_check_state()
 endfunction()

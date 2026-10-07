@@ -177,9 +177,9 @@ static int check_signal_create(int variant, int fail_after, int error)
 static int check_signal_init(int fail_after, int error)
 {
   volatile int signum=0;
-  volatile test_pq_t queue;
+  static test_pq_t queue;
 
-  memset((test_pq_t *)&queue, 0xff, sizeof(queue));
+  memset(&queue, 0xff, sizeof(queue));
   failure_errno = error;
   allocations_before_failure = fail_after;
   errno = 0;
@@ -188,7 +188,7 @@ static int check_signal_init(int fail_after, int error)
   gk_set_exit_on_error(1);
   switch (gk_sigcatch()) {
     case 0:
-      test_pq_Init((test_pq_t *)&queue, 4);
+      test_pq_Init(&queue, 4);
       break;
     case SIGMEM:
       signum = SIGMEM;
@@ -204,7 +204,7 @@ static int check_signal_init(int fail_after, int error)
       queue.maxnodes != 0 || queue.heap != NULL || queue.locator != NULL ||
       live_allocations != 0)
     return 0;
-  test_pq_Free((test_pq_t *)&queue);
+  test_pq_Free(&queue);
   return live_allocations == 0;
 }
 
@@ -230,11 +230,11 @@ static int check_return_size(void)
 static int check_signal_size(void)
 {
   volatile int signum=0;
-  volatile test_pq_t queue;
+  static test_pq_t queue;
 
   if ((uintmax_t)PTRDIFF_MAX >= (uintmax_t)SIZE_MAX)
     return 1;
-  memset((test_pq_t *)&queue, 0xff, sizeof(queue));
+  memset(&queue, 0xff, sizeof(queue));
   allocations_before_failure = -1;
   errno = 0;
   if (!gk_sigtrap())
@@ -242,7 +242,7 @@ static int check_signal_size(void)
   gk_set_exit_on_error(1);
   switch (gk_sigcatch()) {
     case 0:
-      test_pq_Init((test_pq_t *)&queue, (size_t)PTRDIFF_MAX+1);
+      test_pq_Init(&queue, (size_t)PTRDIFF_MAX+1);
       break;
     case SIGMEM:
       signum = SIGMEM;

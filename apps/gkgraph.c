@@ -169,11 +169,16 @@ static int validate_test_graph(gk_graph_t *graph)
 int main(int argc, char *argv[])
 {
   params_t *params;
+  int rc;
 
   /* get command-line options */
   params = parse_cmdline(argc, argv);
 
-  return test_tc(params);
+  rc = test_tc(params);
+  gk_free((void **)&params->infile, (void **)&params->outfile,
+          (void **)&params, LTERM);
+
+  return rc;
 }
 
 

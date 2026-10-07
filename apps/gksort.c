@@ -265,6 +265,9 @@ void test_skvsort()
       printf("gk_skvsorti error at index %jd [%s %s] [%jd %jd]\n", (intmax_t)i, array[i].key, array[i+1].key, (intmax_t)array[i].val, (intmax_t)array[i+1].val);
   }
 
+  for (i=0; i<N; i++)
+    gk_free((void **)&array[i].key, LTERM);
+
 
   /* test the decreasing sort */
   printf("Testing skvsortd...\n");
@@ -281,6 +284,9 @@ void test_skvsort()
     if (strcmp(array[i].key, array[i+1].key) < 0)
       printf("gk_skvsortd error at index %jd [%s %s] [%jd %jd]\n", (intmax_t)i, array[i].key, array[i+1].key, (intmax_t)array[i].val, (intmax_t)array[i+1].val);
   }
+
+  for (i=0; i<N; i++)
+    gk_free((void **)&array[i].key, LTERM);
 
 }
 

@@ -20,6 +20,7 @@
 PQT *FPRFX ## Create2(ssize_t maxnodes)\
 {\
   PQT *volatile queue;\
+  void *cleanup_queue;\
   volatile int saved_errno;\
   volatile int signum=0;\
 \
@@ -29,10 +30,14 @@ PQT *FPRFX ## Create2(ssize_t maxnodes)\
   memset(queue, 0, sizeof(PQT));\
   queue->maxnodes = maxnodes;\
   if (!gk_sigtrap()) {\
-    gk_free((void **)&queue, LTERM);\
-    errno = ENOMEM;\
-    gk_errexit(SIGMEM, "gk_pqCreate2: signal trap unavailable");\
-    errno = ENOMEM;\
+    saved_errno = errno;\
+    signum = saved_errno == ENOMEM || saved_errno == EOVERFLOW ? SIGMEM : SIGERR;\
+    cleanup_queue = (PQT *)queue;\
+    gk_free(&cleanup_queue, LTERM);\
+    queue = (PQT *)cleanup_queue;\
+    errno = saved_errno;\
+    gk_errexit(signum, "gk_pqCreate2: signal trap unavailable");\
+    errno = saved_errno;\
     return NULL;\
   }\
   switch (gk_sigcatch()) {\
@@ -51,14 +56,17 @@ PQT *FPRFX ## Create2(ssize_t maxnodes)\
       queue->vals = VMALLOC(maxnodes, (char *)"gk_pqCreate2: vals");\
   }\
   saved_errno = errno != 0 ? errno : ENOMEM;\
-  gk_siguntrap();\
+  if (!gk_siguntrap())\
+    _Exit(EXIT_FAILURE);\
   if (queue->keys == NULL || queue->vals == NULL) {\
-    gk_free((void **)&queue->keys, &queue->vals, &queue, LTERM);\
+    cleanup_queue = (PQT *)queue;\
+    gk_free((void **)&queue->keys, &queue->vals, &cleanup_queue, LTERM);\
+    queue = (PQT *)cleanup_queue;\
     errno = saved_errno;\
   }\
   if (signum != 0) {\
     errno = saved_errno;\
-    raise(signum);\
+    gk_sigthrow(signum);\
     errno = saved_errno;\
   }\
 \

@@ -168,6 +168,19 @@ type. Use untracked `CMakeUserPresets.json` for local compiler paths.
 
 ## Dependencies
 
+On POSIX, synchronous error recovery requires pthread signal-mask support.
+CMake independently verifies a raw thread closure with a final executable link,
+including when the parent already cached an archive-only FindThreads result.
+It first checks the reported raw closure, then private platform candidates as
+needed; only a proven candidate is applied to GKlib. The producer and installed
+static consumers use the same link flags. Parent Threads targets and standard
+FindThreads cache entries are not changed. These small checks run again on each
+configuration, including when a library changes at an unchanged path. This does
+not inherit arbitrary target-only customizations of `Threads::Threads`. Static
+consumers need not enable C or C++ merely to discover Threads. Windows uses its existing CRT recovery
+buffers and has no added pthread dependency. External signals remain owned by
+the host; see [architecture](architecture.md) for the recovery contract.
+
 The root `CMakeLists.txt` selects the regex backend. AUTO prefers a linkable system
 POSIX regex implementation, falling back to bundled GKREGEX. SYSTEM requires
 its header and functions; GKREGEX selects the bundled implementation; PCRE

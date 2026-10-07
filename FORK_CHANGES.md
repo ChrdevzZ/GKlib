@@ -20,6 +20,13 @@ These changes are Unreleased. A parent project must select a compatible fork
 commit, and that commit must be published before remote users can fetch it.
 This document does not require a METIS parent checkout to be read or used.
 
+POSIX recovery checks the actual pthread signal-mask final link during producer
+configuration, including when a parent requests compile-only feature checks.
+A private raw closure resolver also handles a pre-existing compile-only
+FindThreads cache without changing the parent's target or cache. The exact
+validated compile/link inputs reach the producer and its static package;
+small dependency checks rerun to detect changed libraries at unchanged paths.
+
 ## Inherited functionality
 
 GKlib remains the helper-routine and template library used by METIS and related
@@ -201,6 +208,23 @@ Do not automatically restore intentionally removed build files.
 
 ### Unreleased
 
+- Release duplicated sort keys and command-line parameter ownership in the
+  gksort, gkgraph and cmpnbrs applications on their normal returning paths.
+  Keep native getline buffer capacity truthful in its fixture and exercise
+  the fallback's non-NULL/zero-capacity extension separately. CLI regression
+  checks reject sanitizer diagnostics even for expected application failures.
+
+- Resolve and validate the POSIX pthread closure independently of stale parent
+  FindThreads results, including nonempty static and shared package consumption.
+  Reuse that closure in source-including fixtures and direct thread tests.
+- Match the Linux producer's POSIX feature level in the source-inclusion binary
+  reader fixture so getline is declared before system headers are consumed.
+
+
+- Preserve the original allocation errno when fresh tracker construction frees
+  a partial object. Verify wrapping repeatedly with active configuration flags
+  and parent cache isolation; ignore emulator settings in native probes.
+
 - Isolate OpenMP runtime lookup from parent cache variables and require explicit
   assertion execution evidence in negative tests.
 - Preserve toolchain inputs and the selected configuration in nested tests,
@@ -264,6 +288,44 @@ Do not automatically restore intentionally removed build files.
   regression coverage for their build and consumer contracts.
 - Separate the introductory README, complete build reference and fixed-baseline
   fork comparison; preserve upstream ownership and license notices.
+
+- Correct inherited GNU/POSIX `strerror_r` adaptation: copy GNU returned storage,
+  reject stale text on a status failure and preserve the caller's `errno`.
+- Replace inherited process-handler recovery with explicit synchronous bindings
+  and thread-local entry-mask snapshots. This changes external-signal semantics:
+  external signals remain owned by the host, including during recovery frames.
+  Keep public jump buffers, functions and Windows DLL accessors, use synchronous
+  template rethrows, and require POSIX pthread signal-mask support. Add linked
+  protocol tests alongside the existing controlled allocation fixtures.
+- Correct the fork's nested runtime fixture configuration forwarding for
+  multi-config generators, retaining failure and cross-runtime assertions.
+- Create POSIX failure-fixture temporary streams exclusively in their binary
+  working directory, use valid C99 `setjmp` contexts and link source-including
+  recovery fixtures
+  to the POSIX thread target. Check pending host-signal delivery before catch
+  resumes through the linked modern and legacy recovery paths.
+- Supply the POSIX build program explicitly to the Intel runtime developer
+  fixture while retaining its closed library-search environment.
+
+- Check successful writer calls through the synchronous error policy and
+  committed graph contents instead of assuming a successful call clears errno.
+  Retain failure-code and output-preservation checks.
+
+- Correct the fork integration of fallible POSIX frame setup: preserve
+  resource versus general errors and the first errno, leave unpublished frames
+  unpopped, and stop real queue and constructor consumers after failure.
+  Verify the linked library and caller-owned templates with real allocators.
+  Preserve volatile recovery owners through ordinary cleanup pointers, and
+  keep isolated queue fixture objects valid across their C99 recovery points.
+- Verify failure-test wrapping through separate translation units, negative and
+  positive final links, and native or emulated execution. Keep probe results
+  private to the test configuration and preserve cross-compilation limits.
+
+- Correct the fork integration of fallible recovery releases in caller-owned
+  queue templates. Internal release and jump-restoration failures use a strict
+  `_Exit(EXIT_FAILURE)` boundary; public release interfaces retain their
+  failure result and live binding for same-activation retry. Verify C99/C++11
+  consumers separately from source-including allocation fixtures.
 
 These entries describe the current modified checkout, not a published fork
 release. Add actual release identifiers only after a release exists. Public

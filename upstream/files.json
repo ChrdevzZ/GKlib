@@ -91,7 +91,7 @@
     {
       "baseline_blob": "65438368f30537fba04157567e15b2ce000943f2",
       "id": "gklib-apps-gksort-c",
-      "kind": "direct",
+      "kind": "modified",
       "local_path": "apps/gksort.c",
       "notes": "Identity mapping from the upstream path.",
       "upstream_path": "apps/gksort.c"
@@ -245,7 +245,7 @@
       "id": "gklib-include-gk-mkpqueue-h",
       "kind": "modified",
       "local_path": "include/gk_mkpqueue.h",
-      "notes": "Identity mapping; priority-queue construction and initialization clean partial state before returning or rethrowing allocation failures, use unsigned heap indices with signed locators, and reject unrepresentable capacities.",
+      "notes": "Identity mapping; priority-queue construction and initialization clean partial state before returning or rethrowing allocation failures, use unsigned heap indices with signed locators, and reject unrepresentable capacities. Classify failed frame setup before reporting and retain its errno through queue cleanup. Use ordinary cleanup pointers and assign their result back through volatile recovery owners. Internal release failure uses a strict exit without changing caller-owned exports.",
       "upstream_path": "include/gk_mkpqueue.h"
     },
     {
@@ -253,7 +253,7 @@
       "id": "gklib-include-gk-mkpqueue2-h",
       "kind": "modified",
       "local_path": "include/gk_mkpqueue2.h",
-      "notes": "Identity mapping; priority-queue construction cleans partial state before returning or rethrowing allocation failures.",
+      "notes": "Identity mapping; priority-queue construction cleans partial state before returning or rethrowing allocation failures. Classify failed frame setup before reporting and retain its errno through queue cleanup. Use ordinary cleanup pointers and assign their result back through volatile recovery owners. Internal release failure uses a strict exit without changing caller-owned exports.",
       "upstream_path": "include/gk_mkpqueue2.h"
     },
     {
@@ -429,7 +429,7 @@
       "id": "gklib-local-src-cmake",
       "kind": "local",
       "local_path": "src/CMakeLists.txt",
-      "notes": "Local library target definition.",
+      "notes": "Local library target definition. Check Threads and pthread_sigmask by executable linking even under compile-only parents, preserving parent check state.",
       "upstream_path": null
     },
     {
@@ -518,6 +518,14 @@
       "kind": "local",
       "local_path": "tests/error_errno.c",
       "notes": "Local regression fixture for error-signal errno preservation and virtual-memory-info argument handling.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-frame-setup-failure-c",
+      "kind": "local",
+      "local_path": "tests/frame_setup_failure.c",
+      "notes": "Real static-library and caller-owned queue query-failure fixture with POSIX mask, outer frame, marker and allocation ownership checks.",
       "upstream_path": null
     },
     {
@@ -645,7 +653,31 @@
       "id": "gklib-local-tests-pqueue-failure-recovery-c",
       "kind": "local",
       "local_path": "tests/pqueue_failure_recovery.c",
-      "notes": "Local fixture for priority-queue construction, initialization, allocation failure recovery, and locator-range validation.",
+      "notes": "Local fixture for priority-queue construction, initialization, allocation failure recovery, and locator-range validation. Use static queue aggregates across C99 recovery points without removing volatile qualifiers by cast.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-recovery-c",
+      "kind": "local",
+      "local_path": "tests/recovery.c",
+      "notes": "Local linked-library fixture for synchronous recovery, legacy bindings, tracker markers, host signals and POSIX mask restoration. Require exactly 128 modern frames and check both modern/legacy establishment orders.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-recovery-release-failure-c",
+      "kind": "local",
+      "local_path": "tests/recovery_release_failure.c",
+      "notes": "Linked C99 subprocess checks for strict recovery-release failure and public POSIX retry. Keep both retry activations live, compare full masks including available RT signals, and retain tracked outer allocations.",
+      "upstream_path": null
+    },
+    {
+      "baseline_blob": null,
+      "id": "gklib-local-tests-recovery-release-failure-cpp",
+      "kind": "local",
+      "local_path": "tests/recovery_release_failure.cpp",
+      "notes": "C++11 instantiation of the shared recovery-release failure fixture.",
       "upstream_path": null
     },
     {
@@ -821,7 +853,7 @@
       "id": "gklib-src-error-c",
       "kind": "modified",
       "local_path": "src/error.c",
-      "notes": "Identity mapping from the upstream path.",
+      "notes": "Identity mapping; synchronous bindings preserve public retry ownership. Failed jump-mask restoration terminates without host callbacks.",
       "upstream_path": "src/error.c"
     },
     {
@@ -909,7 +941,7 @@
       "id": "gklib-src-mcore-c",
       "kind": "modified",
       "local_path": "src/mcore.c",
-      "notes": "Identity mapping; reserves capacity before payload allocation and core mutation, commits growth transactionally, releases partial constructors, and preserves records or caller handles when marker-rejected deletion, pop or destruction returns.",
+      "notes": "Identity mapping; reserves capacity before payload allocation and core mutation, commits growth transactionally, releases partial constructors while preserving allocation errno, and preserves records or caller handles when marker-rejected deletion, pop or destruction returns.",
       "upstream_path": "src/mcore.c"
     },
     {

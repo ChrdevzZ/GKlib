@@ -25,6 +25,36 @@ shared builds expose error state through accessors; allocation tracking also
 uses configured TLS. Assertion behavior is controlled by GKlib-specific policy
 macros, with normal and expensive checks independent of consumer-wide NDEBUG.
 
+Recovery bindings are synchronous: `gk_sigtrap` reserves a frame, then the
+caller initializes it with `gk_sigcatch` before calling fallible code. Use
+`gk_sigcatch` only in a C-standard `setjmp` expression context, such as the
+controlling expression of a `switch`. `gk_errexit(SIGMEM/SIGERR, ...)` jumps to
+the most recent binding when exit-on-error is enabled; returning mode reports
+the error and returns. `gk_sigthrow` rethrows after local cleanup. Neither
+modern nor legacy bindings install signal handlers. External signals, including
+`raise(SIGMEM/SIGERR)`, remain the host's responsibility and do not trigger
+GKlib recovery. The historical `gk_NonLocalExit_Handler` name is retained for
+explicit synchronous legacy jumps, not asynchronous handler use.
+
+On POSIX, each binding saves the calling thread's entry signal mask and restores
+it on a jump or normal release using `pthread_sigmask`. A failed `gk_sigtrap`
+returns zero with `errno` without publishing a new binding. A failed
+`gk_siguntrap` returns zero with `errno` and keeps the original binding active
+so the caller can retry while its original activation remains live. The legacy
+`gk_UnsetSignalHandlers` interface is void and reports failure through `errno`;
+failed mask restoration also keeps its established binding active. A caller
+must not leave that activation after a failed release. Internal queue-template releases and
+failed mask restoration during a jump use `_Exit(EXIT_FAILURE)` because a
+valid recovered state cannot be guaranteed. This protocol failure bypasses
+host signal and exit callbacks, C++ automatic cleanup and buffered output;
+ordinary reported allocation or input errors retain their recovery policy.
+Legacy bindings use the single public `gk_jbuf`, reject duplicate establishment
+and must be released after their inner modern frames. All bindings are released in reverse order.
+The public `jmp_buf` declarations and Windows DLL accessor layout are unchanged.
+Windows recovery does not use signal masks. With TLS disabled, callers must
+serialize recovery and allocation tracking. Even with TLS enabled, this protocol
+does not make other global GKlib or METIS state fully concurrent.
+
 The checked allocator, matrix, cache, mcore and hash-table paths validate sizes
 before changing ownership. Returning failures and trapped allocation signals in
 those paths leave previously committed state usable. The hardened graph, CSR,

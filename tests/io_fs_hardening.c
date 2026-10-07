@@ -168,7 +168,7 @@ int main(void)
     return 15;
   {
     char *line = (char *)malloc(1);
-    size_t capacity = 0;
+    size_t capacity = 1;
     if (line == NULL || gk_getline(&line, &capacity, stream) != 4097)
       return 16;
     free(line);
@@ -194,6 +194,26 @@ int main(void)
   }
   if (fclose(stream) != 0)
     return 42;
+
+  /* The fallback also accepts a non-NULL buffer with zero advertised size.
+     System getline may allocate a replacement without reclaiming that input. */
+  stream = fopen("gklib-long-line.txt", "rb");
+  if (stream == NULL)
+    return 71;
+  {
+    char *line = (char *)malloc(1);
+    size_t capacity = 0;
+
+    if (line == NULL || gk_getline_fallback(&line, &capacity, stream) != 4097 ||
+        capacity < 4098 || line[4097] != '\0') {
+      free(line);
+      fclose(stream);
+      return 72;
+    }
+    free(line);
+  }
+  if (fclose(stream) != 0)
+    return 73;
 
   stream = fopen("gklib-getline-error.txt", "wb");
   if (stream == NULL)

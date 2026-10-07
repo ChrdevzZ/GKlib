@@ -165,7 +165,9 @@ gk_mcore_t *gk_gkmcoreCreate(void)
   mcore->nmops = 2048;
   mcore->cmop  = 0;
   if ((mcore->mops = (gk_mop_t *)malloc(mcore->nmops*sizeof(gk_mop_t))) == NULL) {
+    int saved_errno = errno;
     free(mcore);
+    errno = saved_errno;
     return NULL;
   }
 
@@ -519,4 +521,3 @@ void gk_gkmcoreDel(gk_mcore_t *mcore, void *ptr)
 
   gk_errexit(SIGMEM, "gkmcoreDel should never have been here!\n");
 }
-

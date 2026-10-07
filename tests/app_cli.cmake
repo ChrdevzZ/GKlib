@@ -30,6 +30,12 @@ function(expect_exit name expected)
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error)
+  # An expected application error must not hide a sanitizer failure.
+  if("${output}${error}" MATCHES
+      "AddressSanitizer|LeakSanitizer|UndefinedBehaviorSanitizer|runtime error:")
+    message(FATAL_ERROR
+      "${name} reported a runtime diagnostic:\n${output}${error}")
+  endif()
   if(expected STREQUAL "success")
     if(NOT result EQUAL 0)
       message(FATAL_ERROR
@@ -48,6 +54,12 @@ function(expect_failure_without_output name output_file)
     RESULT_VARIABLE result
     OUTPUT_VARIABLE output
     ERROR_VARIABLE error)
+  # An expected application error must not hide a sanitizer failure.
+  if("${output}${error}" MATCHES
+      "AddressSanitizer|LeakSanitizer|UndefinedBehaviorSanitizer|runtime error:")
+    message(FATAL_ERROR
+      "${name} reported a runtime diagnostic:\n${output}${error}")
+  endif()
   if(result EQUAL 0)
     message(FATAL_ERROR
       "${name} unexpectedly succeeded:\n${output}${error}")

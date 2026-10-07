@@ -115,6 +115,35 @@ static int check_binary_overflow_signal(void)
 }
 
 
+static int check_graph_write(gk_graph_t *graph, const char *filename,
+    int format, int numbering)
+{
+  volatile int signum=0;
+
+  /* A successful write does not define errno. Check the error policy and
+     inspect the committed output in the caller. */
+  if (!gk_sigtrap())
+    return 0;
+  gk_set_exit_on_error(1);
+  switch (gk_sigcatch()) {
+    case 0:
+      gk_graph_Write(graph, (char *)filename, format, numbering);
+      break;
+    case SIGMEM:
+      signum = SIGMEM;
+      break;
+    default:
+      signum = SIGERR;
+      break;
+  }
+  gk_set_exit_on_error(0);
+  if (!gk_siguntrap())
+    return 0;
+
+  return signum == 0;
+}
+
+
 int main(void)
 {
   ssize_t xadj[] = {0, 1, 2};
@@ -372,14 +401,19 @@ int main(void)
   graph.xadj = xadj;
   graph.adjncy = adjncy;
   graph.iadjwgt = signed_weights;
-  errno = 0;
-  gk_graph_Write(&graph, (char *)"gklib-signed-writer.ijv",
-                 GK_GRAPH_FMT_IJV, 0);
-  if (errno != 0 || !gk_fexists((char *)"gklib-signed-writer.ijv"))
+  if (remove("gklib-signed-writer.ijv") != 0 && errno != ENOENT)
+    return 33;
+  if (!check_graph_write(&graph, "gklib-signed-writer.ijv",
+                        GK_GRAPH_FMT_IJV, 0) ||
+      !gk_fexists((char *)"gklib-signed-writer.ijv"))
     return 33;
   read_graph = gk_graph_Read((char *)"gklib-signed-writer.ijv",
                              GK_GRAPH_FMT_IJV, 1, 0, 0, 0, 0);
-  if (read_graph == NULL || read_graph->iadjwgt == NULL ||
+  if (read_graph == NULL || read_graph->nvtxs != 2 ||
+      read_graph->xadj == NULL || read_graph->xadj[0] != 0 ||
+      read_graph->xadj[1] != 1 || read_graph->xadj[2] != 2 ||
+      read_graph->adjncy == NULL || read_graph->adjncy[0] != 1 ||
+      read_graph->adjncy[1] != 0 || read_graph->iadjwgt == NULL ||
       read_graph->iadjwgt[0] != -5 || read_graph->iadjwgt[1] != -7)
     return 34;
   gk_graph_Free(&read_graph);
@@ -447,26 +481,45 @@ int main(void)
 
   graph.ivwgts = zero_weights;
   graph.ivsizes = zero_weights;
-  errno = 0;
-  gk_graph_Write(&graph, (char *)"gklib-zero-vertex.graph",
-                 GK_GRAPH_FMT_METIS, 1);
-  if (errno != 0 || !gk_fexists((char *)"gklib-zero-vertex.graph"))
+  if (remove("gklib-zero-vertex.graph") != 0 && errno != ENOENT)
+    return 46;
+  if (!check_graph_write(&graph, "gklib-zero-vertex.graph",
+                        GK_GRAPH_FMT_METIS, 1) ||
+      !gk_fexists((char *)"gklib-zero-vertex.graph"))
     return 46;
   read_graph = gk_graph_Read((char *)"gklib-zero-vertex.graph",
                              GK_GRAPH_FMT_METIS, 0, 1, 0, 0, 0);
-  if (read_graph == NULL || read_graph->ivwgts[0] != 0 ||
-      read_graph->ivsizes[0] != 0)
+  if (read_graph == NULL || read_graph->nvtxs != 2 ||
+      read_graph->xadj == NULL || read_graph->xadj[0] != 0 ||
+      read_graph->xadj[1] != 1 || read_graph->xadj[2] != 2 ||
+      read_graph->adjncy == NULL || read_graph->adjncy[0] != 1 ||
+      read_graph->adjncy[1] != 0 ||
+      read_graph->ivwgts == NULL || read_graph->ivsizes == NULL ||
+      read_graph->ivwgts[0] != 0 || read_graph->ivwgts[1] != 0 ||
+      read_graph->ivsizes[0] != 0 || read_graph->ivsizes[1] != 0)
     return 47;
   gk_graph_Free(&read_graph);
   graph.ivwgts = NULL;
   graph.ivsizes = NULL;
   graph.fvwgts = zero_float_values;
   graph.fvsizes = zero_float_values;
-  errno = 0;
-  gk_graph_Write(&graph, (char *)"gklib-zero-vertex.graph",
-                 GK_GRAPH_FMT_METIS, 1);
-  if (errno != 0)
+  if (remove("gklib-zero-vertex.graph") != 0 && errno != ENOENT)
     return 48;
+  if (!check_graph_write(&graph, "gklib-zero-vertex.graph",
+                        GK_GRAPH_FMT_METIS, 1))
+    return 48;
+  read_graph = gk_graph_Read((char *)"gklib-zero-vertex.graph",
+                             GK_GRAPH_FMT_METIS, 0, 1, 0, 1, 1);
+  if (read_graph == NULL || read_graph->nvtxs != 2 ||
+      read_graph->xadj == NULL || read_graph->xadj[0] != 0 ||
+      read_graph->xadj[1] != 1 || read_graph->xadj[2] != 2 ||
+      read_graph->adjncy == NULL || read_graph->adjncy[0] != 1 ||
+      read_graph->adjncy[1] != 0 ||
+      read_graph->fvwgts == NULL || read_graph->fvsizes == NULL ||
+      read_graph->fvwgts[0] != 0.0f || read_graph->fvwgts[1] != 0.0f ||
+      read_graph->fvsizes[0] != 0.0f || read_graph->fvsizes[1] != 0.0f)
+    return 48;
+  gk_graph_Free(&read_graph);
   graph.fvwgts = NULL;
   graph.fvsizes = NULL;
 

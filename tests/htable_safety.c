@@ -104,11 +104,20 @@ static int check_unsigned_hash(void)
 
 static int check_create_signal_cleanup(void)
 {
-  int signum;
+  int signum=0;
 
   allocations_before_failure = 1;
   jump_on_error = 1;
-  signum = setjmp(failure_jump);
+  switch (setjmp(failure_jump)) {
+    case 0:
+      break;
+    case SIGMEM:
+      signum = SIGMEM;
+      break;
+    default:
+      signum = SIGERR;
+      break;
+  }
   if (signum == 0) {
     (void)HTable_Create(4);
     jump_on_error = 0;
@@ -129,7 +138,7 @@ static int check_resize_signal_transaction(void)
 {
   gk_HTable_t *htable;
   gk_ikv_t *old_harray;
-  int old_nelements, old_htsize, signum, status=0;
+  int old_nelements, old_htsize, signum=0, status=0;
 
   allocations_before_failure = -1;
   htable = HTable_Create(4);
@@ -143,7 +152,16 @@ static int check_resize_signal_transaction(void)
 
   allocations_before_failure = 0;
   jump_on_error = 1;
-  signum = setjmp(failure_jump);
+  switch (setjmp(failure_jump)) {
+    case 0:
+      break;
+    case SIGMEM:
+      signum = SIGMEM;
+      break;
+    default:
+      signum = SIGERR;
+      break;
+  }
   if (signum == 0) {
     HTable_Resize(htable, 8);
     jump_on_error = 0;
@@ -168,7 +186,7 @@ static int check_resize_signal_transaction(void)
 static int check_resize_growth_overflow(void)
 {
   gk_HTable_t *htable;
-  int old_nelements, old_htsize, signum, status=0;
+  int old_nelements, old_htsize, signum=0, status=0;
 
   allocations_before_failure = -1;
   htable = HTable_Create(2);
@@ -183,7 +201,16 @@ static int check_resize_growth_overflow(void)
   htable->htsize = old_htsize;
 
   jump_on_error = 1;
-  signum = setjmp(failure_jump);
+  switch (setjmp(failure_jump)) {
+    case 0:
+      break;
+    case SIGMEM:
+      signum = SIGMEM;
+      break;
+    default:
+      signum = SIGERR;
+      break;
+  }
   if (signum == 0) {
     HTable_Insert(htable, 3, 12);
     jump_on_error = 0;

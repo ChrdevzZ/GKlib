@@ -84,11 +84,20 @@ void gk_free(void **ptr1, ...)
 static int check_create_failure(int fail_after)
 {
   gk_cache_t *cache;
-  int signum;
+  int signum=0;
 
   allocations_before_failure = fail_after;
   jump_on_error = 1;
-  signum = setjmp(failure_jump);
+  switch (setjmp(failure_jump)) {
+    case 0:
+      break;
+    case SIGMEM:
+      signum = SIGMEM;
+      break;
+    default:
+      signum = SIGERR;
+      break;
+  }
   if (signum == 0) {
     cache = gk_cacheCreate(2, 0, 1);
     jump_on_error = 0;

@@ -1,5 +1,9 @@
 #include <GKlib.h>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 
 static int fail_next_malloc;
 static int reallocs_before_failure=-1;
@@ -41,8 +45,26 @@ static FILE *open_input(const char *contents)
 {
   FILE *stream;
   size_t length=strlen(contents);
+#ifndef _WIN32
+  char name[] = "getline-fallback-XXXXXX";
+  int fd;
+#endif
 
+#ifdef _WIN32
   stream = tmpfile();
+#else
+  /* Create exclusively in the binary working directory, then remove the name. */
+  fd = mkstemp(name);
+  if (fd < 0)
+    return NULL;
+  if (unlink(name) != 0) {
+    close(fd);
+    return NULL;
+  }
+  stream = fdopen(fd, "w+b");
+  if (stream == NULL)
+    close(fd);
+#endif
   if (stream == NULL)
     return NULL;
   if (fwrite(contents, 1, length, stream) != length ||

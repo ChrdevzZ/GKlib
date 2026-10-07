@@ -15,6 +15,47 @@ The public API test includes allocation accounting and release checks.
 Controlled-failure fixtures separately verify recovery and ownership when
 allocation or I/O fails; these are not replaced by successful API calls.
 
+`GKlib.error-errno` checks known, consecutive and unknown error text against the
+current C locale and checks error-policy `errno` preservation. `GKlib.recovery`
+links the real library to check nested and repeated synchronous errors, legacy
+bindings, frame capacity, tracker markers and host signal ownership. On POSIX
+it also checks a non-default entry mask and delivery of a pending host signal
+before catch resumes, for both modern and legacy bindings. The C++11 consumer
+uses condition variables to force overlapping frames in two threads when TLS
+is enabled, and checks thread-local error text. These run as separate CTest
+processes so a failed signal check cannot leave state in another fixture. See the
+[recovery contract](architecture.md) before changing these tests.
+`GKlib.frame-setup-failure` uses a verified wrapping linker and a real static
+producer to fail POSIX mask queries in library and caller-owned queues. It keeps
+real allocator/free ownership and checks returning/nonlocal errors, errno,
+outer frames, complete masks, marker accounting and subsequent success. This
+linked fixture complements source-including controlled allocator tests.
+`GKlib.release-failure.*` links the real static library and instantiates the
+caller-owned queue templates in C99 and C++11. Each termination case runs in a
+separate process, compares its exit status with `EXIT_FAILURE`, and rejects
+signal-handler escape, exit callbacks, automatic cleanup and continued work.
+POSIX cases inject restoration failures in modern and legacy jumps and retain
+the public same-activation retry contract. These tests require a verified
+wrapping linker; shared-library internal calls are outside that boundary.
+The wrapping probe uses separate translation units: the unwrapped executable
+must fail its final link, the wrapped executable must link, and native or
+emulated execution must return the expected result. Without a cross emulator
+only the final link is checked; compiler names do not establish this capability.
+Repeated probes use the current configuration flags and preserve parent check
+variables and cache results. Native probes ignore cross-emulator settings.
+The thread dependency fixture also enables source-including and direct thread
+tests under a compile-only parent with a nonempty model closure. They reuse the
+producer's validated private inputs for static and shared builds; the model
+does not replace testing on a libc with a separate pthread library.
+
+GNU and POSIX `strerror_r` coverage requires separate producer builds with
+`-DCMAKE_C_FLAGS=-D_GNU_SOURCE` or `-DCMAKE_C_FLAGS=-D_POSIX_C_SOURCE=200809L`
+on a libc that exposes the corresponding interfaces. Changing only consumer
+macros does not test the implementation's selected branch.
+
+Nested runtime fixtures pass the selected configuration to both the child
+configuration list and CTest, including custom multi-config configurations.
+
 CTest covers API behavior, build/install consumers and optional maintenance
 tool regressions. Run the upstream mapping audit explicitly when changing
 source provenance; it is not a prerequisite for building or testing a source
@@ -45,6 +86,8 @@ The mcore/memory fixture requires failed operation-stack growth to
 leave pointers, capacities and stack positions unchanged, failed tracked
 reallocation to retain the old record, constructor failure to release partial
 objects and public marker-boundary rejection to occur before allocator mutation.
+Fresh tracker construction also preserves the failed allocation's errno when
+the successful release of its partial object changes errno.
 It also checks that a rejected free preserves the current pointer and later
 variadic arguments, and that rejected mcore deletion, pop and destruction retain
 their records, statistics and caller handle. Internal mcore-stack growth must

@@ -288,6 +288,75 @@ if(GKLIB_REGEX_LINK_TARGET)
   target_link_libraries(GKlib PUBLIC "${GKLIB_REGEX_LINK_TARGET}")
 endif()
 
+# POSIX recovery saves the calling thread's mask. Export the producer-checked
+# link flags directly so static Fortran-only consumers need no C/C++ discovery.
+if(NOT WIN32)
+  function(gklib_target_threads target)
+    cmake_push_check_state(RESET)
+    set(CMAKE_TRY_COMPILE_TARGET_TYPE EXECUTABLE)
+    set(CMAKE_REQUIRED_DEFINITIONS -D_POSIX_C_SOURCE=200809L)
+    set(_gklib_thread_source "#include <signal.h>
+      #include <pthread.h>
+      static void *thread_main(void *arg) { return arg; }
+      int main(void) {
+        sigset_t mask;
+        pthread_t thread;
+        if (pthread_sigmask(SIG_SETMASK, 0, &mask)) return 1;
+        if (pthread_create(&thread, 0, thread_main, 0)) return 1;
+        return pthread_join(thread, 0);
+      }")
+
+    # A parent's FindThreads may have cached a compile-only success. Resolve
+    # our own raw closure without changing that cache or Threads::Threads.
+    # Probe exactly what the producer and static package consumers will use;
+    # target-only usage requirements are deliberately not treated as evidence
+    # for a different CMAKE_THREAD_LIBS_INIT closure.
+    set(_gklib_thread_candidates reported flag pthreads pthread)
+    if(CMAKE_SYSTEM MATCHES "GHS-MULTI")
+      list(APPEND _gklib_thread_candidates posix)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "HP-UX")
+      list(APPEND _gklib_thread_candidates cma)
+    endif()
+    foreach(_gklib_thread_candidate IN LISTS _gklib_thread_candidates)
+      if(_gklib_thread_candidate STREQUAL "reported")
+        set(_gklib_thread_libraries "${CMAKE_THREAD_LIBS_INIT}")
+      elseif(_gklib_thread_candidate STREQUAL "flag")
+        set(_gklib_thread_libraries -pthread)
+      else()
+        set(_gklib_thread_libraries "-l${_gklib_thread_candidate}")
+      endif()
+      set(_gklib_thread_compile_options "")
+      if("-pthread" IN_LIST _gklib_thread_libraries)
+        set(_gklib_thread_compile_options -pthread)
+      endif()
+      set(CMAKE_REQUIRED_FLAGS "${_gklib_thread_compile_options}")
+      set(CMAKE_REQUIRED_LIBRARIES "${_gklib_thread_libraries}")
+      gklib_check_link("${_gklib_thread_source}"
+        _gklib_have_pthread_mask UNCACHED)
+      if(_gklib_have_pthread_mask)
+        break()
+      endif()
+    endforeach()
+    cmake_pop_check_state()
+    if(NOT _gklib_have_pthread_mask)
+      message(FATAL_ERROR "GKlib recovery requires linkable POSIX pthread signal masks")
+    endif()
+    # Source-including fixtures and direct thread consumers must use the same
+    # closure, even when the parent's Threads target describes a stale check.
+    set_property(TARGET ${target} PROPERTY
+      GKLIB_PRIVATE_THREAD_COMPILE_OPTIONS "${_gklib_thread_compile_options}")
+    set_property(TARGET ${target} PROPERTY
+      GKLIB_PRIVATE_THREAD_LIBRARIES "${_gklib_thread_libraries}")
+    if(_gklib_thread_compile_options)
+      target_compile_options(${target} PRIVATE ${_gklib_thread_compile_options})
+    endif()
+    if(_gklib_thread_libraries)
+      target_link_libraries(${target} PRIVATE ${_gklib_thread_libraries})
+    endif()
+  endfunction()
+  gklib_target_threads(GKlib)
+endif()
+
 # Discover the C runtime in an executable check, then export that dependency
 # requirement so installed package consumers can reconstruct the link interface.
 if(GKLIB_OPENMP)

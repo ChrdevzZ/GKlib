@@ -166,7 +166,7 @@ params_t *parse_cmdline(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
   params_t *params;
-  gk_csr_t *amat, *bmat, *amatt, *bmatt;
+  gk_csr_t *amat=NULL, *bmat=NULL, *amatt=NULL, *bmatt=NULL;
   int rc = EXIT_SUCCESS;
 
   params = parse_cmdline(argc, argv);
@@ -174,17 +174,15 @@ int main(int argc, char *argv[])
   amat = gk_csr_Read(params->afile, GK_CSR_FMT_CSR, 1, 0);
   bmat = gk_csr_Read(params->bfile, GK_CSR_FMT_CSR, 1, 0);
   if (amat == NULL || bmat == NULL) {
-    gk_csr_Free(&amat);
-    gk_csr_Free(&bmat);
-    return EXIT_FAILURE;
+    rc = EXIT_FAILURE;
+    goto cleanup;
   }
 
   /* make the matrices of similar dimensions (if neccessary) */
   if (amat->nrows != bmat->nrows) {
     fprintf(stderr, "Input matrices must have the same number of rows.\n");
-    gk_csr_Free(&amat);
-    gk_csr_Free(&bmat);
-    return EXIT_FAILURE;
+    rc = EXIT_FAILURE;
+    goto cleanup;
   }
   amat->ncols = gk_max(amat->ncols, bmat->ncols);
   bmat->ncols = amat->ncols;
@@ -193,11 +191,8 @@ int main(int argc, char *argv[])
   amatt = gk_csr_Transpose(amat);
   bmatt = gk_csr_Transpose(bmat);
   if (amatt == NULL || bmatt == NULL) {
-    gk_csr_Free(&amat);
-    gk_csr_Free(&bmat);
-    gk_csr_Free(&amatt);
-    gk_csr_Free(&bmatt);
-    return EXIT_FAILURE;
+    rc = EXIT_FAILURE;
+    goto cleanup;
   }
 
   printf("********************************************************************************\n");
@@ -220,10 +215,14 @@ int main(int argc, char *argv[])
   printf("    wclock: %.2lfs\n", gk_getwctimer(params->timer_global));
   printf("********************************************************************************\n");
 
+cleanup:
   gk_csr_Free(&amat);
   gk_csr_Free(&bmat);
   gk_csr_Free(&amatt);
   gk_csr_Free(&bmatt);
+
+  gk_free((void **)&params->afile, (void **)&params->bfile,
+          (void **)&params, LTERM);
 
   return rc;
 }

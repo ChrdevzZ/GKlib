@@ -39,6 +39,9 @@ set_property(SOURCE pqueue_failure_recovery.c PROPERTY OBJECT_DEPENDS
   "${PROJECT_SOURCE_DIR}/include/gk_mkpqueue2.h"
   "${PROJECT_SOURCE_DIR}/src/error.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/memory_failure_support.h")
+if(NOT WIN32)
+  gklib_test_link_threads(gklib-pqueue-failure-recovery-test)
+endif()
 
 add_executable(gklib-regex-realloc-test regex_realloc_failure.c)
 target_compile_definitions(gklib-regex-realloc-test PRIVATE GKLIB_STATIC_DEFINE)
@@ -52,6 +55,10 @@ add_executable(gklib-sort-sentinel-test sort_sentinel.c)
 target_link_libraries(gklib-sort-sentinel-test PRIVATE GKlib::GKlib)
 
 add_executable(gklib-binary-reader-short-read-test binary_reader_short_read.c)
+# This fixture includes io.c after GKlib.h, so match the producer's feature
+# level before any system header fixes the available getline declarations.
+target_compile_definitions(gklib-binary-reader-short-read-test PRIVATE
+  "$<$<PLATFORM_ID:Linux>:_POSIX_C_SOURCE=200809L>")
 target_link_libraries(gklib-binary-reader-short-read-test PRIVATE GKlib::GKlib)
 set_property(SOURCE binary_reader_short_read.c PROPERTY OBJECT_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/io.c")
@@ -95,9 +102,94 @@ set_property(SOURCE memory_size_safety.c PROPERTY OBJECT_DEPENDS
   "${PROJECT_SOURCE_DIR}/src/memory.c"
   "${PROJECT_SOURCE_DIR}/src/memory_internal.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/memory_failure_support.h")
+if(NOT WIN32)
+  gklib_test_link_threads(gklib-memory-size-safety-test)
+endif()
 
 add_executable(gklib-error-errno-test error_errno.c)
 target_link_libraries(gklib-error-errno-test PRIVATE GKlib::GKlib)
+
+# Recovery protocol checks link the real library; allocator fixtures above
+# include controlled source implementations and cannot verify host ownership.
+add_executable(gklib-recovery-test recovery.c)
+target_link_libraries(gklib-recovery-test PRIVATE GKlib::GKlib)
+if(NOT WIN32)
+  gklib_test_link_threads(gklib-recovery-test)
+endif()
+
+# Query injection crosses the real static producer's external libc reference.
+# Shared-library binding is different and is covered by normal consumer tests.
+get_target_property(_gklib_frame_test_type GKlib::GKlib TYPE)
+if(NOT WIN32 AND _gklib_frame_test_type STREQUAL "STATIC_LIBRARY")
+  gklib_test_check_link_wrap(_gklib_frame_test_wrap)
+  if(_gklib_frame_test_wrap)
+    add_executable(gklib-frame-setup-failure-test frame_setup_failure.c)
+    target_link_libraries(gklib-frame-setup-failure-test PRIVATE
+      GKlib::GKlib)
+    gklib_test_link_threads(gklib-frame-setup-failure-test)
+    target_compile_definitions(gklib-frame-setup-failure-test PRIVATE
+      _POSIX_C_SOURCE=200809L)
+    target_link_options(gklib-frame-setup-failure-test PRIVATE
+      "LINKER:--wrap=pthread_sigmask")
+    set_target_properties(gklib-frame-setup-failure-test PROPERTIES
+      C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)
+    gklib_test_add_runtime(NAME GKlib.frame-setup-failure
+      TARGET gklib-frame-setup-failure-test)
+    set_tests_properties(GKlib.frame-setup-failure PROPERTIES TIMEOUT 30)
+  endif()
+endif()
+
+# Strict failure exits need subprocess assertions; ordinary recovery fixtures
+# cannot continue after a producer leaves a failed release binding active.
+if(_gklib_frame_test_type STREQUAL "STATIC_LIBRARY")
+  gklib_test_check_link_wrap(_gklib_release_test_wrap)
+  if(_gklib_release_test_wrap)
+    set(_gklib_release_cases queue-create queue-init queue2-create)
+    if(NOT WIN32)
+      list(APPEND _gklib_release_cases modern legacy)
+    endif()
+    foreach(_language IN ITEMS c cxx)
+      set(_source recovery_release_failure.c)
+      if(_language STREQUAL "cxx")
+        set(_source recovery_release_failure.cpp)
+      endif()
+      set(_target "gklib-release-failure-${_language}-test")
+      add_executable(${_target} ${_source})
+      target_link_libraries(${_target} PRIVATE GKlib::GKlib)
+      target_link_options(${_target} PRIVATE "LINKER:--wrap=gk_siguntrap")
+      set_target_properties(${_target} PROPERTIES
+        C_STANDARD 99 C_STANDARD_REQUIRED YES C_EXTENSIONS NO
+        CXX_STANDARD 11 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO
+        INTERPROCEDURAL_OPTIMIZATION FALSE)
+      set(_gklib_release_configs ${CMAKE_BUILD_TYPE} ${CMAKE_CONFIGURATION_TYPES})
+      list(REMOVE_DUPLICATES _gklib_release_configs)
+      foreach(_config IN LISTS _gklib_release_configs)
+        string(TOUPPER "${_config}" _upper)
+        set_property(TARGET ${_target} PROPERTY
+          "INTERPROCEDURAL_OPTIMIZATION_${_upper}" FALSE)
+      endforeach()
+      if(NOT WIN32)
+        target_compile_definitions(${_target} PRIVATE
+          GKLIB_TEST_POSIX_RELEASE _POSIX_C_SOURCE=200809L)
+        gklib_test_link_threads(${_target})
+        target_link_options(${_target} PRIVATE "LINKER:--wrap=pthread_sigmask")
+      endif()
+      foreach(_case IN LISTS _gklib_release_cases)
+        foreach(_mode IN ITEMS 0 1)
+          gklib_test_add_runtime(NAME "GKlib.release-failure.${_language}.${_case}.${_mode}"
+            TARGET ${_target} ARGS ${_case} ${_mode} EXPECT_FAILURE)
+          set_tests_properties("GKlib.release-failure.${_language}.${_case}.${_mode}"
+            PROPERTIES TIMEOUT 30)
+        endforeach()
+      endforeach()
+    endforeach()
+    if(NOT WIN32)
+      gklib_test_add_runtime(NAME GKlib.release-failure.public-retry
+        TARGET gklib-release-failure-c-test ARGS public-retry)
+      set_tests_properties(GKlib.release-failure.public-retry PROPERTIES TIMEOUT 30)
+    endif()
+  endif()
+endif()
 
 add_executable(gklib-string-growth-failure-test string_growth_failure.c)
 target_include_directories(gklib-string-growth-failure-test PRIVATE
@@ -165,6 +257,7 @@ set_target_properties(
   gklib-output-transaction-failure-test
   gklib-pqueue-failure-recovery-test
   gklib-regex-realloc-test
+  gklib-recovery-test
   gklib-seq-reader-test
   gklib-sort-sentinel-test
   gklib-string-growth-failure-test
@@ -191,6 +284,7 @@ foreach(test IN ITEMS
     output-transaction-failure
     pqueue-failure-recovery
     regex-realloc
+    recovery
     sort-sentinel
     string-growth-failure
     tokenizer-failure
@@ -265,10 +359,10 @@ if(GKLIB_BUILD_PROGRAMS)
 endif()
 
 # The C++ consumer verifies public headers and thread-related link requirements.
-find_package(Threads REQUIRED)
 add_executable(gklib-cxx-consumer-test cxx_consumer.cpp)
 target_compile_features(gklib-cxx-consumer-test PRIVATE cxx_std_11)
-target_link_libraries(gklib-cxx-consumer-test PRIVATE GKlib::GKlib Threads::Threads)
+target_link_libraries(gklib-cxx-consumer-test PRIVATE GKlib::GKlib)
+gklib_test_link_threads(gklib-cxx-consumer-test)
 gklib_test_add_runtime(NAME GKlib.cxx-consumer TARGET gklib-cxx-consumer-test
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
@@ -290,6 +384,7 @@ if(WIN32)
       gklib-graph-csr-hardening-test
       gklib-io-fs-hardening-test
       gklib-output-transaction-failure-test
+      gklib-recovery-test
       gklib-seq-reader-test
       gklib-sort-sentinel-test
       gklib-string-growth-failure-test
@@ -436,9 +531,11 @@ if(GKLIB_BUILD_INTEGRATION_TESTING)
       "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/test-support"
       "-DGENERATOR=${CMAKE_GENERATOR}"
       "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+      "-DTEST_INITIAL_CACHE=${_gklib_test_initial_cache}"
       "-DGENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}"
       "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
       "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+      "-DTEST_CONFIG=$<CONFIG>"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/test-support/verify.cmake")
   set_tests_properties(gklib.test-support PROPERTIES TIMEOUT 120)
 

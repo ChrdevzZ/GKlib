@@ -15,6 +15,7 @@ static int mallocs_before_failure = -1;
 static int fail_next_realloc;
 static int error_count;
 static int error_signal;
+static int clobber_free;
 
 
 static void *test_malloc(size_t nbytes)
@@ -60,6 +61,8 @@ static void test_free(void *ptr)
   if (ptr != NULL) {
     free(ptr);
     live_allocations--;
+    if (clobber_free)
+      errno = EACCES;
   }
 }
 
@@ -169,8 +172,10 @@ static int check_mcore_create_failure(void)
     return 18;
 
   mallocs_before_failure = 1;
+  clobber_free = 1;
   mcore = gk_gkmcoreCreate();
-  if (mcore != NULL || live_allocations != 0)
+  clobber_free = 0;
+  if (mcore != NULL || live_allocations != 0 || errno != ENOMEM)
     return 19;
 
   return 0;
